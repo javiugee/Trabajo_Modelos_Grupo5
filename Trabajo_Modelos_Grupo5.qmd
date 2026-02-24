@@ -1,0 +1,144 @@
+---
+title: "Análisis de Factores Determinantes en el Rendimiento Escolar"
+subtitle: "Trabajo de Modelos de Regresión - Grupo 5"
+author: 
+  - name: "Javier Ugena García"
+  - name: "Soraya Burgos Modrego"
+  - name: "Elba Jares Darriba"
+date: today
+lang: es
+format: 
+  html:
+    toc: true
+    toc-title: "Índice de Contenidos"
+    toc-depth: 3
+    number-sections: true
+    theme: lux
+    code-fold: show
+    code-tools: true
+    embed-resources: true
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  freeze: auto
+---
+
+# Introducción
+
+El objetivo de este trabajo es identificar qué factores (sociales, familiares y académicos) tienen un impacto significativo en la nota final de los estudiantes. Utilizaremos el dataset *Student Performance* de la UCI, que recoge datos de dos asignaturas: Matemáticas y Portugués.
+
+# Contexto del Proyecto y Descripción de los Datos
+
+El objetivo de este análisis es predecir el rendimiento académico de los estudiantes en las asignaturas de Matemáticas y Portugués en dos escuelas portuguesas. Los datos incluyen atributos demográficos, sociales y académicos recogidos mediante informes escolares y cuestionarios.
+
+## Diccionario de Variables Principales
+
+Para el desarrollo de los modelos de regresión, es vital entender el significado de las variables clave:
+
+* G1 y G2: Calificaciones del primer y segundo periodo (escala de 0 a 20).
+* G3: Calificación final. Es nuestra **variable respuesta** (escala de 0 a 20).
+* Medu / Fedu: Nivel educativo de la madre y el padre (0: ninguno, 1: educación primaria, 2: 5º a 9º grado, 3: secundaria o 4: educación superior).
+* failures: Número de clases suspendidas anteriormente (n si $1 \leq n < 3$, de lo contrario 4).
+* absences: Número de ausencias escolares (de 0 a 93).
+* studytime: Tiempo de estudio semanal (1: <2h, 2: 2 a 5h, 3: 5 a 10h, o 4: >10h).
+
+## Carga y Estructura de los Dataframes
+
+Cargamos ambos ficheros para verificar que la importación es correcta según los metadatos proporcionados.
+
+```{r}
+#| label: descripcion-dataframes
+#| message: false
+
+# Carga de datos
+df_mat <- read.csv("datos/student-mat.csv", sep = ";")
+df_por <- read.csv("datos/student-por.csv", sep = ";")
+
+# Observamos la dimensión de los datos para confirmar la carga
+# El dataset de Matemáticas tiene 395 instancias y 33 atributos
+dim(df_mat)
+
+# El dataset de Portugués tiene 649 instancias y 33 atributos
+dim(df_por)
+
+# Unimos los dataframes para encontrar alumnos comunes. Según la documentación, hay alumnos que aparecen en ambos
+df_total <- merge(df_mat, df_por, by=c("school","sex","age","address","famsize","Pstatus","Medu","Fedu","Mjob","Fjob","reason","nursery","internet"))
+
+# Comprobamos cuántos alumnos cursan ambas asignaturas
+# El dataset total tiene 382 instancias, lo que indica que hay 382 alumnos que cursan ambas asignaturas
+nrow(df_total)
+```
+
+# Preparación de Datos y Análisis Exploratorio (EDA)
+
+## Carga de datos y limpieza
+
+Para empezar, cargamos el dataset de Matemáticas. Hemos decidido centrarnos inicialmente en este porque suele presentar una mayor variabilidad en las notas. Observamos que el separador es el punto y coma (`;`).
+
+```{r}
+#| label: carga-datos
+#| message: false
+library(tidyverse)
+library(corrplot)
+
+# Cargamos el dataset de la carpeta local 'datos'
+df_mat <- read.csv("datos/student-mat.csv", sep = ";")
+
+# Verificamos si hay valores nulos para asegurar la calidad del modelo
+sum(is.na(df_mat))
+```
+
+Observación: No hay valores nulos en el dataset, por lo que podemos proceder sin imputación de datos. Sin embargo, observamos variables categóricas (como sex, address, Mjob) que deberemos tratar más adelante si queremos incluirlas en la regresión múltiple.
+
+## Análisis Exploratorio Visual
+
+Analizamos la distribución de las notas y la relación entre la educación de los padres y el éxito del estudiante.
+
+```{r}
+# Histograma de la nota final en matemáticas
+ggplot(df_mat, aes(x = G3)) +
+  geom_histogram(binwidth = 1, fill = "#2c3e50", color = "white") +
+  labs(title = "Distribución de Calificaciones Finales (G3)", 
+       subtitle = "Dataframe de Matemáticas",
+       x = "Nota Final", y = "Número de Estudiantes") +
+  theme_minimal()
+
+# Histograma de la nota final en lengua portuguesa
+ggplot(df_por, aes(x = G3)) +
+  geom_histogram(binwidth = 1, fill = "#2c3e50", color = "white") +
+  labs(title = "Distribución de Calificaciones Finales (G3)", 
+       subtitle = "Dataframe de Lengua Portuguesa",
+       x = "Nota Final", y = "Número de Estudiantes") +
+  theme_minimal()
+```
+
+Observamos que la distribución de las notas finales (G3) en ambos datasets es sesgada hacia la derecha, con una mayor concentración de estudiantes obteniendo calificaciones bajas. Esto sugiere que muchos estudiantes tienen dificultades para alcanzar calificaciones altas, lo que podría estar relacionado con factores socioeconómicos o académicos.
+
+## Matriz de Correlación
+
+Para continuar con el modelo, necesitamos identificar qué variables numéricas tienen una relación significativa con la nota final (G3). Para ello, calculamos la matriz de correlación y visualizamos los resultados.
+
+```{r}
+# Seleccionamos solo las variables numéricas para el análisis de correlación
+
+numeric_vars_mat <- df_mat %>%
+  select_if(is.numeric)
+
+numeric_vars_por <- df_por %>%
+  select_if(is.numeric)
+
+# Calculamos la matriz de correlación
+
+cor_matrix_mat <- cor(numeric_vars_mat)
+
+cor_matrix_por <- cor(numeric_vars_por)
+
+# Visualizamos la matriz de correlación
+
+corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black", tl.srt = 45, title = "Matriz de Correlación - Matemáticas")
+
+corrplot(cor_matrix_por, method = "color", type = "upper", tl.col = "black", tl.srt = 45, title = "Matriz de Correlación - Lengua Portuguesa")
+```
+
+Observamos que las variables G1 y G2 tienen una fuerte correlación positiva con G3, lo que indica que las calificaciones de los periodos anteriores son buenos predictores del rendimiento final. Además, la variable studytime también muestra una correlación positiva moderada con G3, sugiriendo que el tiempo dedicado al estudio puede influir en el rendimiento académico. Por otro lado, variables como absences y failures tienen una correlación negativa con G3, lo que indica que un mayor número de ausencias o clases suspendidas está asociado con calificaciones finales más bajas. Estas observaciones nos ayudarán a seleccionar las variables más relevantes para nuestros modelos de regresión.
