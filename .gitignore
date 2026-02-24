@@ -1,0 +1,12 @@
+# Archivo para no guardar o subir datos basura
+
+# R específicos
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Quarto / RMarkdown (Archivos temporales y caché)
+/.quarto/
+/_freeze/
+*_files/
