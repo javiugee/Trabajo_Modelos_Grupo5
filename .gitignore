@@ -9,4 +9,4 @@
 # Quarto / RMarkdown (Archivos temporales y caché)
 /.quarto/
 /_freeze/
-*_files/
+*_files/ 
