@@ -136,7 +136,7 @@ cor_matrix_por <- cor(numeric_vars_por)
 
 # Visualizamos la matriz de correlación
 
-corrplot(cor_matrix, method = "color", type = "upper", tl.col = "black", tl.srt = 45, title = "Matriz de Correlación - Matemáticas")
+corrplot(cor_matrix_mat, method = "color", type = "upper", tl.col = "black", tl.srt = 45, title = "Matriz de Correlación - Matemáticas")
 
 corrplot(cor_matrix_por, method = "color", type = "upper", tl.col = "black", tl.srt = 45, title = "Matriz de Correlación - Lengua Portuguesa")
 ```

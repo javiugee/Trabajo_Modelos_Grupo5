@@ -1,0 +1,79 @@
+---
+title: "ejercicio3_modelos"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: carga-datos
+#| message: false
+library(tidyverse)
+library(corrplot)
+
+# Cargamos el dataset de la carpeta local 'datos'
+df_mat <- read.csv("datos/student-mat.csv", sep = ";")
+
+# Verificamos si hay valores nulos para asegurar la calidad del modelo
+sum(is.na(df_mat))
+```
+
+# Selección de variables y regularización
+
+```{r}
+# Cargar librerías
+
+library(tidyverse)
+library(MASS)
+library(car)          # Para VIF y diagnósticos
+library(corrplot)     # Para matrices de correlación
+library(broom)        # Para resultados ordenados
+library(GGally)       # Para gráficos de pares
+
+set.seed(123)
+```
+
+## Selección de variables
+
+```{r}
+# Seleccionamos las variables relevantes observadas en la matriz de correlación tras hacer el anáñisis exploratorio
+modelo <- lm(G3 ~ G1 + G2 + studytime + absences + failures, data = df_mat)
+summary(modelo)
+```
+
+## Regularización
+
+Vamos a usar la regularización Lasso:
+
+```{r}
+library(glmnet)
+# Creamos las matrices
+  # Usamos model.matrix para convertir las variables categóricas a 0 y 1
+  # Hay que poner [, -1] para eliminar la columna de unos del intercepto que se crea
+X <- model.matrix(G3 ~ ., data = df_mat)[, -1] # Variables predictoras
+y <- df_mat$G3 # Variables respuesta
+
+# Modelo Lasso (alpha = 1)
+  # Para Lasso se usa alpha=1 (alpha=0 es para ridge)
+modelo_lasso <- cv.glmnet(X, y, alpha = 1)
+
+# Mostrar resultados
+  # USamos lambda.min para escoger el mejor valor
+coeficientes_lasso <- coef(modelo_lasso, s = "lambda.min")
+print(coeficientes_lasso)
+```
+
+En el resultado que nos ha dado se pueden ver puntos en muchas de las variables, esto quiere decir que el algoritmo ha determinado que son irrelevantes y, por lo tanto, las ha eliminado del modelo.
+
+```{r}
+plot(modelo_lasso)
+```
+
+En este gráfico se puede ver cómo evoluciona el error a medida que cambia lambda, es decir, el nivel de penalización.
+
+En el eje Y se muestra el error cuadrático medio (MSE), que interpreta cuánto se equivoca el modelo al predecir la nota de los estudiantes. Lo que se busca es que este valor sea lo más bajo posible, ya que cuanto menos es el error mayor es el rendimiento del modelo. 
+
+Y en el eje X se encuentra el logaritmo negativo del parámetro lambda. Como se puede ver, cuanto más nos movemos a la derecha, el valor de lambda disminuye, lo que quiere decir que hay menor penalización.
+
+En el eje superior aparecen una serie de números enteros, que indican el número de variables que tienen un coeficiente distinto de cero. Como se puede observar, a medida que nos movemos hacia la izquierda, como hay mayor penalización y por lo tanto el modelo es más restrictivo, lo que hace es que se eliminen variables y haya menos valores con coeficiente distinto de cero, pero esto hace que el error pueda aumentar.
+
+Por último, también hay dos líneas verticales. La de la izquierda representa el lambda que minimiza el error, que es la que antes hemos puesto como "lambda.min", mientras que la de la derecha indica el modelo más restrictivo, es decir, con el lambda más grande, que a su vez mantiene el error dentro de un margen apropiado.
