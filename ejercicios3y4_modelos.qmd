@@ -19,7 +19,7 @@ sum(is.na(df_mat))
 
 # Selección de variables y regularización
 
-```{r}
+```{r librerias}
 # Cargar librerías
 
 library(tidyverse)
@@ -28,30 +28,40 @@ library(car)          # Para VIF y diagnósticos
 library(corrplot)     # Para matrices de correlación
 library(broom)        # Para resultados ordenados
 library(GGally)       # Para gráficos de pares
+library(glmnet)
+library(ggplot2)      # Para visualización
 
 set.seed(123)
 ```
 
 ## Selección de variables
 
-```{r}
-# Seleccionamos las variables relevantes observadas en la matriz de correlación tras hacer el anáñisis exploratorio
-modelo <- lm(G3 ~ G1 + G2 + studytime + absences + failures, data = df_mat)
-summary(modelo)
+Vamos a seleccionar el mejor subconjunto de variables
+
+```{r seleccion}
+# Modelo de regresión lineal múltiple
+modelo <- lm(G3 ~ ., data = df_mat)
+
+# Método stepwise
+modelo_step <- step(modelo, direction = "both", trace = 0)
+summary(modelo_step)
 ```
 
 ## Regularización
 
-Vamos a usar la regularización Lasso:
+Aplicaremos dos métodos de regularización: Lasso y Ridge.
 
-```{r}
-library(glmnet)
+```{r regularizacion}
 # Creamos las matrices
   # Usamos model.matrix para convertir las variables categóricas a 0 y 1
   # Hay que poner [, -1] para eliminar la columna de unos del intercepto que se crea
 X <- model.matrix(G3 ~ ., data = df_mat)[, -1] # Variables predictoras
 y <- df_mat$G3 # Variables respuesta
+```
 
+**Modelo Lasso:**
+
+```{r lasso}
 # Modelo Lasso (alpha = 1)
   # Para Lasso se usa alpha=1 (alpha=0 es para ridge)
 modelo_lasso <- cv.glmnet(X, y, alpha = 1)
@@ -64,7 +74,7 @@ print(coeficientes_lasso)
 
 En el resultado que nos ha dado se pueden ver puntos en muchas de las variables, esto quiere decir que el algoritmo ha determinado que son irrelevantes y, por lo tanto, las ha eliminado del modelo.
 
-```{r}
+```{r visualizar lasso}
 plot(modelo_lasso)
 ```
 
@@ -77,3 +87,20 @@ Y en el eje X se encuentra el logaritmo negativo del parámetro lambda. Como se 
 En el eje superior aparecen una serie de números enteros, que indican el número de variables que tienen un coeficiente distinto de cero. Como se puede observar, a medida que nos movemos hacia la izquierda, como hay mayor penalización y por lo tanto el modelo es más restrictivo, lo que hace es que se eliminen variables y haya menos valores con coeficiente distinto de cero, pero esto hace que el error pueda aumentar.
 
 Por último, también hay dos líneas verticales. La de la izquierda representa el lambda que minimiza el error, que es la que antes hemos puesto como "lambda.min", mientras que la de la derecha indica el modelo más restrictivo, es decir, con el lambda más grande, que a su vez mantiene el error dentro de un margen apropiado.
+
+**Modelo Ridge:**
+
+```{r ridge}
+# Modelo Ridge (alpha = 0)
+  # Para Ridge se usa alpha=0
+modelo_ridge <- cv.glmnet(X, y, alpha = 0)
+
+# Mostrar resultados
+  # USamos lambda.min para escoger el mejor valor
+coeficientes_ridge <- coef(modelo_ridge, s = "lambda.min")
+print(coeficientes_ridge)
+```
+
+```{r visualizar ridge}
+plot(modelo_ridge)
+```
