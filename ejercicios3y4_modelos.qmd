@@ -231,6 +231,9 @@ y <- df_mat$G3 # Variables respuesta
 # Modelo Lasso (alpha = 1)
   # Para Lasso se usa alpha=1 (alpha=0 es para ridge)
 
+# Grid de valores lambda
+lambda_grid <- 10^seq(10, -2, length = 100)
+
 # Ajustar Lasso regression
 lasso_model <- glmnet(X, y, alpha = 1, lambda = lambda_grid)
 
@@ -260,31 +263,15 @@ cat("Número de variables seleccionadas:", length(vars_lasso), "\n")
 # Gráfico de validación cruzada
 plot(lasso_cv, main = "Validación Cruzada - Lasso Regression")
 ```
-
-En el resultado que nos ha dado se pueden ver puntos en muchas de las variables, esto quiere decir que el algoritmo ha determinado que son irrelevantes y, por lo tanto, las ha eliminado del modelo.
-
 ```{r visualizar lasso}
-plot(modelo_lasso)
+plot(lasso_model)
 ```
-
-En este gráfico se puede ver cómo evoluciona el error a medida que cambia lambda, es decir, el nivel de penalización.
-
-En el eje Y se muestra el error cuadrático medio (MSE), que interpreta cuánto se equivoca el modelo al predecir la nota de los estudiantes. Lo que se busca es que este valor sea lo más bajo posible, ya que cuanto menos es el error mayor es el rendimiento del modelo. 
-
-Y en el eje X se encuentra el logaritmo negativo del parámetro lambda. Como se puede ver, cuanto más nos movemos a la derecha, el valor de lambda disminuye, lo que quiere decir que hay menor penalización.
-
-En el eje superior aparecen una serie de números enteros, que indican el número de variables que tienen un coeficiente distinto de cero. Como se puede observar, a medida que nos movemos hacia la izquierda, como hay mayor penalización y por lo tanto el modelo es más restrictivo, lo que hace es que se eliminen variables y haya menos valores con coeficiente distinto de cero, pero esto hace que el error pueda aumentar.
-
-Por último, también hay dos líneas verticales. La de la izquierda representa el lambda que minimiza el error, que es la que antes hemos puesto como "lambda.min", mientras que la de la derecha indica el modelo más restrictivo, es decir, con el lambda más grande, que a su vez mantiene el error dentro de un margen apropiado.
 
 **Modelo Ridge:**
 
 ```{r ridge}
 # Modelo Ridge (alpha = 0)
   # Para Ridge se usa alpha=0
-
-# Grid de valores lambda
-lambda_grid <- 10^seq(10, -2, length = 100)
 
 # Ajustar Ridge regression
 ridge_model <- glmnet(X, y, alpha = 0, lambda = lambda_grid)
@@ -312,5 +299,5 @@ plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
 ```
 
 ```{r visualizar ridge}
-plot(modelo_ridge)
+plot(ridge_model)
 ```
