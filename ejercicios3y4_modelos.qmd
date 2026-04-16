@@ -23,28 +23,194 @@ sum(is.na(df_mat))
 # Cargar librerías
 
 library(tidyverse)
-library(MASS)
+library(MASS)         # Para métodos stepwise
 library(car)          # Para VIF y diagnósticos
 library(corrplot)     # Para matrices de correlación
 library(broom)        # Para resultados ordenados
 library(GGally)       # Para gráficos de pares
-library(glmnet)
+library(glmnet)       # Para regularización
 library(ggplot2)      # Para visualización
+library(leaps)        # Para best subset selection
+library(gridExtra)    # Para múltiples gráficos
 
 set.seed(123)
 ```
 
 ## Selección de variables
 
-Vamos a seleccionar el mejor subconjunto de variables
+Vamos a seleccionar el mejor subconjunto de variables.
+
+Primero vamos a hacerlo a partir de métodos de selección exhaustiva, a partir de "Best Subset Selection".
+
+```{r best subset selection}
+# Realizar best subset selection (evaluamos hasta 15 variables)
+best_subset <- regsubsets(G3 ~ ., data = df_mat, nvmax = 15)
+subset_summary <- summary(best_subset)
+
+# Crear dataframe con resultados
+subset_results <- data.frame(
+  n_vars = 1:15,
+  RSS = subset_summary$rss,
+  R2 = subset_summary$rsq,
+  R2_adj = subset_summary$adjr2,
+  Cp = subset_summary$cp,
+  BIC = subset_summary$bic
+  )
+  
+print(subset_results)
+
+# Identificar mejores modelos
+mejor_r2_adj_idx <- which.max(subset_results$R2_adj)
+mejor_cp_idx <- which.min(subset_results$Cp)
+mejor_bic_idx <- which.min(subset_results$BIC)
+
+cat("Mejor R² ajustado:", mejor_r2_adj_idx, "variables\n")
+cat("Mejor Cp:", mejor_cp_idx, "variables\n")
+cat("Mejor BIC:", mejor_bic_idx, "variables\n")
+
+# Variables en cada modelo óptimo
+cat("Modelo con mejor R² ajustado (", mejor_r2_adj_idx, "vars):\n")
+vars_mejor_r2 <- names(which(subset_summary$which[mejor_r2_adj_idx, -1]))
+cat(paste(vars_mejor_r2, collapse = ", "), "\n\n")
+
+cat("Modelo con mejor Cp (", mejor_cp_idx, "vars):\n")
+vars_mejor_cp <- names(which(subset_summary$which[mejor_cp_idx, -1]))
+cat(paste(vars_mejor_cp, collapse = ", "), "\n\n")
+
+cat("Modelo con mejor BIC (", mejor_bic_idx, "vars):\n")
+vars_mejor_bic <- names(which(subset_summary$which[mejor_bic_idx, -1]))
+cat(paste(vars_mejor_bic, collapse = ", "), "\n")
+```
+
+```{r}
+# Gráfico de R² ajustado
+p1 <- ggplot(subset_results, aes(x = n_vars, y = R2_adj)) +
+  geom_point(color = "blue", size = 2) +
+  geom_line(color = "blue") +
+  geom_point(aes(x = mejor_r2_adj_idx, y = R2_adj[mejor_r2_adj_idx]), 
+             color = "red", size = 4) +
+  labs(title = "R² Ajustado - Best Subset",
+       x = "Número de Variables", y = "R² Ajustado") +
+  theme_minimal()
+
+# Gráfico de Cp
+p2 <- ggplot(subset_results, aes(x = n_vars, y = Cp)) +
+  geom_point(color = "purple", size = 2) +
+  geom_line(color = "purple") +
+  geom_abline(intercept = 1, slope = 1, color = "red", linetype = "dashed") +
+  geom_point(aes(x = mejor_cp_idx, y = Cp[mejor_cp_idx]), 
+             color = "red", size = 4) +
+  labs(title = "Cp de Mallows - Best Subset",
+       x = "Número de Variables", y = "Cp") +
+  theme_minimal()
+
+# Gráfico de BIC
+p3 <- ggplot(subset_results, aes(x = n_vars, y = BIC)) +
+  geom_point(color = "green", size = 2) +
+  geom_line(color = "green") +
+  geom_point(aes(x = mejor_bic_idx, y = BIC[mejor_bic_idx]), 
+             color = "red", size = 4) +
+  labs(title = "BIC - Best Subset",
+       x = "Número de Variables", y = "BIC") +
+  theme_minimal()
+
+# Mostrar gráficos
+grid.arrange(p1, p2, p3, ncol = 2)
+```
+
+Ahora vamos a hacerlo con métodos automáticos paso a paso.
+
+Forward Selection:
 
 ```{r seleccion}
-# Modelo de regresión lineal múltiple
-modelo <- lm(G3 ~ ., data = df_mat)
+# Modelo inicial
+modelo_inicial <- lm(G3 ~ 1, data = df_mat)
 
-# Método stepwise
-modelo_step <- step(modelo, direction = "both", trace = 0)
-summary(modelo_step)
+# Modelo completo
+modelo_completo_step <- lm(G3 ~ ., data = df_mat)
+
+# Forward selection usando AIC
+forward_aic <- step(modelo_inicial, 
+                    scope = list(lower = modelo_inicial, upper = modelo_completo_step),
+                    direction = "forward", 
+                    trace = FALSE)
+
+cat("Variables seleccionadas:\n")
+forward_vars <- names(coef(forward_aic))[-1]  # Excluir intercepto
+cat(paste(forward_vars, collapse = ", "), "\n")
+cat("AIC final:", AIC(forward_aic), "\n")
+cat("Número de variables:", length(forward_vars), "\n\n")
+
+# Resumen del modelo final
+summary(forward_aic)
+```
+
+Backward Elimination:
+
+```{r}
+# Backward elimination usando AIC
+backward_aic <- step(modelo_completo_step, 
+                     direction = "backward", 
+                     trace = FALSE)
+
+cat("Variables seleccionadas:\n")
+backward_vars <- names(coef(backward_aic))[-1]  # Excluir intercepto
+cat(paste(backward_vars, collapse = ", "), "\n")
+cat("AIC final:", AIC(backward_aic), "\n")
+cat("Número de variables:", length(backward_vars), "\n\n")
+
+# Resumen del modelo final
+summary(backward_aic)
+```
+
+Stepwise Selection:
+
+```{r}
+# Stepwise selection usando AIC
+stepwise_aic <- step(modelo_inicial, 
+                     scope = list(lower = modelo_inicial, upper = modelo_completo_step),
+                     direction = "both", 
+                     trace = FALSE)
+
+cat("Variables seleccionadas:\n")
+stepwise_vars <- names(coef(stepwise_aic))[-1]  # Excluir intercepto
+cat(paste(stepwise_vars, collapse = ", "), "\n")
+cat("AIC final:", AIC(stepwise_aic), "\n")
+cat("Número de variables:", length(stepwise_vars), "\n\n")
+```
+
+Comparamos los métodos automáticos:
+
+```{r}
+# Comparación de métodos automáticos
+metodos_automaticos <- data.frame(
+  Metodo = c("Forward", "Backward", "Stepwise"),
+  N_Variables = c(length(forward_vars), length(backward_vars), length(stepwise_vars)),
+  AIC = c(AIC(forward_aic), AIC(backward_aic), AIC(stepwise_aic)),
+  R2_adj = c(summary(forward_aic)$adj.r.squared,
+             summary(backward_aic)$adj.r.squared,
+             summary(stepwise_aic)$adj.r.squared)
+)
+
+print(metodos_automaticos)
+```
+
+Comparamos las variables seleecionadas:
+
+```{r}
+# Crear matriz de comparación de variables seleccionadas
+todas_vars <- names(df_mat)[-which(names(df_mat) == "G3")]
+
+comparacion_seleccion <- data.frame(
+  Variable = todas_vars,
+  Forward = todas_vars %in% forward_vars,
+  Backward = todas_vars %in% backward_vars,
+  Stepwise = todas_vars %in% stepwise_vars,
+  Best_Subset_BIC = todas_vars %in% vars_mejor_bic,
+  Best_Subset_Cp = todas_vars %in% vars_mejor_cp
+)
+
+print(comparacion_seleccion)
 ```
 
 ## Regularización
@@ -64,12 +230,35 @@ y <- df_mat$G3 # Variables respuesta
 ```{r lasso}
 # Modelo Lasso (alpha = 1)
   # Para Lasso se usa alpha=1 (alpha=0 es para ridge)
-modelo_lasso <- cv.glmnet(X, y, alpha = 1)
 
-# Mostrar resultados
-  # USamos lambda.min para escoger el mejor valor
-coeficientes_lasso <- coef(modelo_lasso, s = "lambda.min")
-print(coeficientes_lasso)
+# Ajustar Lasso regression
+lasso_model <- glmnet(X, y, alpha = 1, lambda = lambda_grid)
+
+# Validación cruzada para seleccionar lambda óptimo
+lasso_cv <- cv.glmnet(X, y, alpha = 1, lambda = lambda_grid, nfolds = 10)
+
+# Lambda óptimo
+lambda_lasso_min <- lasso_cv$lambda.min
+lambda_lasso_1se <- lasso_cv$lambda.1se
+
+cat("Lambda mínimo:", lambda_lasso_min, "\n")
+cat("Lambda 1SE:", lambda_lasso_1se, "\n")
+
+# Predicciones en conjunto de prueba
+
+# Métricas de rendimiento
+
+# Coeficientes finales (Lasso puede hacer coeficientes = 0)
+lasso_coefs <- predict(lasso_model, type = "coefficients", s = lambda_lasso_min)[, 1]
+print(round(lasso_coefs, 4))
+
+# Variables seleccionadas por Lasso
+vars_lasso <- names(lasso_coefs[lasso_coefs != 0])[-1]  # Excluir intercepto
+cat("\nVariables seleccionadas por Lasso:", paste(vars_lasso, collapse = ", "), "\n")
+cat("Número de variables seleccionadas:", length(vars_lasso), "\n")
+
+# Gráfico de validación cruzada
+plot(lasso_cv, main = "Validación Cruzada - Lasso Regression")
 ```
 
 En el resultado que nos ha dado se pueden ver puntos en muchas de las variables, esto quiere decir que el algoritmo ha determinado que son irrelevantes y, por lo tanto, las ha eliminado del modelo.
@@ -93,12 +282,33 @@ Por último, también hay dos líneas verticales. La de la izquierda representa 
 ```{r ridge}
 # Modelo Ridge (alpha = 0)
   # Para Ridge se usa alpha=0
-modelo_ridge <- cv.glmnet(X, y, alpha = 0)
 
-# Mostrar resultados
-  # USamos lambda.min para escoger el mejor valor
-coeficientes_ridge <- coef(modelo_ridge, s = "lambda.min")
-print(coeficientes_ridge)
+# Grid de valores lambda
+lambda_grid <- 10^seq(10, -2, length = 100)
+
+# Ajustar Ridge regression
+ridge_model <- glmnet(X, y, alpha = 0, lambda = lambda_grid)
+
+# Validación cruzada para seleccionar lambda óptimo
+ridge_cv <- cv.glmnet(X, y, alpha = 0, lambda = lambda_grid, nfolds = 10)
+
+# Lambda óptimo
+lambda_ridge_min <- ridge_cv$lambda.min
+lambda_ridge_1se <- ridge_cv$lambda.1se
+
+cat("Lambda mínimo:", lambda_ridge_min, "\n")
+cat("Lambda 1SE:", lambda_ridge_1se, "\n")
+
+# Predicciones en conjunto de prueba
+
+# Métricas de rendimiento
+
+# Coeficientes finales
+ridge_coefs <- predict(ridge_model, type = "coefficients", s = lambda_ridge_min)[, 1]
+print(round(ridge_coefs, 4))
+
+# Gráfico de validación cruzada
+plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
 ```
 
 ```{r visualizar ridge}
