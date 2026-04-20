@@ -40,11 +40,15 @@ set.seed(123)
 
 Vamos a seleccionar el mejor subconjunto de variables.
 
+### Métodos de selección exhaustiva
+
 Primero vamos a hacerlo a partir de métodos de selección exhaustiva, a partir de "Best Subset Selection".
+
+#### Best Subset Selection
 
 ```{r best subset selection}
 # Realizar best subset selection (evaluamos hasta 15 variables)
-best_subset <- regsubsets(G3 ~ ., data = df_mat, nvmax = 15)
+best_subset <- regsubsets(G3 ~ ., data = df_mat, nvmax = 15) ### df_mat --- train
 subset_summary <- summary(best_subset)
 
 # Crear dataframe con resultados
@@ -118,17 +122,21 @@ p3 <- ggplot(subset_results, aes(x = n_vars, y = BIC)) +
 grid.arrange(p1, p2, p3, ncol = 2)
 ```
 
+### Métodos automáticos
+
 Ahora vamos a hacerlo con métodos automáticos paso a paso.
 
-Forward Selection:
-
-```{r seleccion}
+```{r modelos seleccion}
 # Modelo inicial
-modelo_inicial <- lm(G3 ~ 1, data = df_mat)
+modelo_inicial <- lm(G3 ~ 1, data = df_mat) ### df_mat --- train
 
 # Modelo completo
-modelo_completo_step <- lm(G3 ~ ., data = df_mat)
+modelo_completo_step <- lm(G3 ~ ., data = df_mat) ### df_mat --- train
+```
 
+#### Forward Selection
+
+```{r forward selection}
 # Forward selection usando AIC
 forward_aic <- step(modelo_inicial, 
                     scope = list(lower = modelo_inicial, upper = modelo_completo_step),
@@ -145,9 +153,9 @@ cat("Número de variables:", length(forward_vars), "\n\n")
 summary(forward_aic)
 ```
 
-Backward Elimination:
+#### Backward Elimination
 
-```{r}
+```{r backward elimination}
 # Backward elimination usando AIC
 backward_aic <- step(modelo_completo_step, 
                      direction = "backward", 
@@ -163,9 +171,9 @@ cat("Número de variables:", length(backward_vars), "\n\n")
 summary(backward_aic)
 ```
 
-Stepwise Selection:
+#### Stepwise Selection
 
-```{r}
+```{r stepwise selection}
 # Stepwise selection usando AIC
 stepwise_aic <- step(modelo_inicial, 
                      scope = list(lower = modelo_inicial, upper = modelo_completo_step),
@@ -179,9 +187,9 @@ cat("AIC final:", AIC(stepwise_aic), "\n")
 cat("Número de variables:", length(stepwise_vars), "\n\n")
 ```
 
-Comparamos los métodos automáticos:
+### Comparación de los métodos automáticos
 
-```{r}
+```{r comparacion metodos automaticos}
 # Comparación de métodos automáticos
 metodos_automaticos <- data.frame(
   Metodo = c("Forward", "Backward", "Stepwise"),
@@ -195,11 +203,11 @@ metodos_automaticos <- data.frame(
 print(metodos_automaticos)
 ```
 
-Comparamos las variables seleecionadas:
+### Comparación de las variables seleccionadas
 
-```{r}
+```{r comparacion seleccion}
 # Crear matriz de comparación de variables seleccionadas
-todas_vars <- names(df_mat)[-which(names(df_mat) == "G3")]
+todas_vars <- names(df_mat)[-which(names(df_mat) == "G3")] ### df_mat --- train
 
 comparacion_seleccion <- data.frame(
   Variable = todas_vars,
@@ -223,22 +231,73 @@ Aplicaremos dos métodos de regularización: Lasso y Ridge.
   # Hay que poner [, -1] para eliminar la columna de unos del intercepto que se crea
 X <- model.matrix(G3 ~ ., data = df_mat)[, -1] # Variables predictoras
 y <- df_mat$G3 # Variables respuesta
+
+# División train/test para regularización
+train_indices <- sample(1:nrow(X), 0.7 * nrow(X))
+X_train <- X[train_indices, ]
+y_train <- y[train_indices]
+X_test <- X[-train_indices, ]
+y_test <- y[-train_indices]
+
+cat("Entrenamiento:", nrow(X_train), "observaciones\n")
+cat("Prueba:", nrow(X_test), "observaciones\n")
+cat("Variables predictoras:", ncol(X), "\n")
 ```
 
-**Modelo Lasso:**
+```{r lambda grid}
+# Grid de valores lambda
+lambda_grid <- 10^seq(10, -2, length = 100)
+```
+
+### Modelo Ridge
+
+```{r ridge}
+# Modelo Ridge (alpha = 0)
+  # Para Ridge se usa alpha=0
+
+# Ajustar Ridge regression
+ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = lambda_grid) 
+
+# Validación cruzada para seleccionar lambda óptimo
+ridge_cv <- cv.glmnet(X_train, y_train, alpha = 0, lambda = lambda_grid, nfolds = 10) 
+
+# Lambda óptimo
+lambda_ridge_min <- ridge_cv$lambda.min
+lambda_ridge_1se <- ridge_cv$lambda.1se
+
+cat("Lambda mínimo:", lambda_ridge_min, "\n")
+cat("Lambda 1SE:", lambda_ridge_1se, "\n")
+
+# Predicciones en conjunto de prueba
+ridge_pred_min <- predict(ridge_model, s = lambda_ridge_min, newx = X_test)
+ridge_pred_1se <- predict(ridge_model, s = lambda_ridge_1se, newx = X_test)
+
+# Métricas de rendimiento
+ridge_rmse_min <- sqrt(mean((ridge_pred_min - y_test)^2))
+ridge_rmse_1se <- sqrt(mean((ridge_pred_1se - y_test)^2))
+
+cat("RMSE (lambda min):", round(ridge_rmse_min, 3), "\n")
+cat("RMSE (lambda 1SE):", round(ridge_rmse_1se, 3), "\n")
+
+# Coeficientes finales
+ridge_coefs <- predict(ridge_model, type = "coefficients", s = lambda_ridge_min)[, 1]
+print(round(ridge_coefs, 4))
+
+# Gráfico de validación cruzada
+plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
+```
+
+### Modelo Lasso
 
 ```{r lasso}
 # Modelo Lasso (alpha = 1)
   # Para Lasso se usa alpha=1 (alpha=0 es para ridge)
 
-# Grid de valores lambda
-lambda_grid <- 10^seq(10, -2, length = 100)
-
 # Ajustar Lasso regression
-lasso_model <- glmnet(X, y, alpha = 1, lambda = lambda_grid)
+lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = lambda_grid) 
 
 # Validación cruzada para seleccionar lambda óptimo
-lasso_cv <- cv.glmnet(X, y, alpha = 1, lambda = lambda_grid, nfolds = 10)
+lasso_cv <- cv.glmnet(X_train, y_train, alpha = 1, lambda = lambda_grid, nfolds = 10) 
 
 # Lambda óptimo
 lambda_lasso_min <- lasso_cv$lambda.min
@@ -248,8 +307,15 @@ cat("Lambda mínimo:", lambda_lasso_min, "\n")
 cat("Lambda 1SE:", lambda_lasso_1se, "\n")
 
 # Predicciones en conjunto de prueba
+lasso_pred_min <- predict(lasso_model, s = lambda_lasso_min, newx = X_test)
+lasso_pred_1se <- predict(lasso_model, s = lambda_lasso_1se, newx = X_test)
 
 # Métricas de rendimiento
+lasso_rmse_min <- sqrt(mean((lasso_pred_min - y_test)^2))
+lasso_rmse_1se <- sqrt(mean((lasso_pred_1se - y_test)^2))
+
+cat("RMSE (lambda min):", round(lasso_rmse_min, 3), "\n")
+cat("RMSE (lambda 1SE):", round(lasso_rmse_1se, 3), "\n")
 
 # Coeficientes finales (Lasso puede hacer coeficientes = 0)
 lasso_coefs <- predict(lasso_model, type = "coefficients", s = lambda_lasso_min)[, 1]
@@ -263,41 +329,74 @@ cat("Número de variables seleccionadas:", length(vars_lasso), "\n")
 # Gráfico de validación cruzada
 plot(lasso_cv, main = "Validación Cruzada - Lasso Regression")
 ```
-```{r visualizar lasso}
-plot(lasso_model)
-```
 
-**Modelo Ridge:**
+### Elastic Net
 
-```{r ridge}
-# Modelo Ridge (alpha = 0)
-  # Para Ridge se usa alpha=0
+```{r elastic net}
+# Grid de valores alpha para Elastic Net
+alpha_grid <- seq(0, 1, length = 11)
 
-# Ajustar Ridge regression
-ridge_model <- glmnet(X, y, alpha = 0, lambda = lambda_grid)
+# Función para encontrar el mejor alpha
+best_alpha_search <- function(alpha_val) {
+  cv_result <- cv.glmnet(X_train, y_train, alpha = alpha_val, lambda = lambda_grid, nfolds = 10)
+  return(data.frame(alpha = alpha_val, 
+                   lambda_min = cv_result$lambda.min,
+                   cvm_min = min(cv_result$cvm)))
+}
 
-# Validación cruzada para seleccionar lambda óptimo
-ridge_cv <- cv.glmnet(X, y, alpha = 0, lambda = lambda_grid, nfolds = 10)
+# Buscar mejor alpha
+alpha_results <- map_dfr(alpha_grid, best_alpha_search)
+best_alpha <- alpha_results$alpha[which.min(alpha_results$cvm_min)]
 
-# Lambda óptimo
-lambda_ridge_min <- ridge_cv$lambda.min
-lambda_ridge_1se <- ridge_cv$lambda.1se
+cat("Mejor alpha:", best_alpha, "\n")
 
-cat("Lambda mínimo:", lambda_ridge_min, "\n")
-cat("Lambda 1SE:", lambda_ridge_1se, "\n")
+# Ajustar Elastic Net con mejor alpha
+elastic_model <- glmnet(X_train, y_train, alpha = best_alpha, lambda = lambda_grid) 
+elastic_cv <- cv.glmnet(X_train, y_train, alpha = best_alpha, lambda = lambda_grid, nfolds = 10)
+
+lambda_elastic_min <- elastic_cv$lambda.min
+cat("Lambda óptimo:", lambda_elastic_min, "\n")
 
 # Predicciones en conjunto de prueba
+elastic_pred <- predict(elastic_model, s = lambda_elastic_min, newx = X_test)
+elastic_rmse <- sqrt(mean((elastic_pred - y_test)^2))
 
-# Métricas de rendimiento
+cat("RMSE:", round(elastic_rmse, 3), "\n")
 
 # Coeficientes finales
-ridge_coefs <- predict(ridge_model, type = "coefficients", s = lambda_ridge_min)[, 1]
-print(round(ridge_coefs, 4))
+elastic_coefs <- predict(elastic_model, type = "coefficients", s = lambda_elastic_min)[1:14, ]
+print(round(elastic_coefs, 4))
 
-# Gráfico de validación cruzada
-plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
+# Variables seleccionadas por Elastic Net
+vars_elastic <- names(elastic_coefs[abs(elastic_coefs) > 1e-6])[-1]  # Excluir intercepto
+cat("\nVariables seleccionadas por Elastic Net:", paste(vars_elastic, collapse = ", "), "\n")
+cat("Número de variables seleccionadas:", length(vars_elastic), "\n")
 ```
 
-```{r visualizar ridge}
-plot(ridge_model)
+### Comparación de los métodos de regularización
+
+```{r comparacion regularizacion}
+# Comparar todos los métodos de regularización
+comparacion_reg <- data.frame(
+  Metodo = c("Ridge (min)", "Ridge (1SE)", "Lasso (min)", "Lasso (1SE)", "Elastic Net"),
+  RMSE = c(ridge_rmse_min, ridge_rmse_1se, lasso_rmse_min, lasso_rmse_1se, elastic_rmse),
+  N_Variables = c(sum(abs(ridge_coefs[-1]) > 1e-6),
+                  sum(abs(predict(ridge_model, type = "coefficients", s = lambda_ridge_1se)[2:14, ]) > 1e-6),
+                  length(vars_lasso),
+                  sum(abs(predict(lasso_model, type = "coefficients", s = lambda_lasso_1se)[2:14, ]) > 1e-6),
+                  length(vars_elastic))
+)
+
+print(comparacion_reg)
+
+# Gráfico de comparación
+ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = Metodo), hjust = 0, vjust = -0.5, size = 3) +
+  labs(title = "Comparación de Métodos de Regularización",
+       x = "Número de Variables Efectivas", 
+       y = "RMSE en Conjunto de Prueba") +
+  theme_minimal() +
+  theme(legend.position = "none")
 ```
+
