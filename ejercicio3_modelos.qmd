@@ -17,7 +17,7 @@ df_mat <- read.csv("datos/student-mat.csv", sep = ";")
 sum(is.na(df_mat))
 ```
 
-# Selección de variables y regularización
+# Modelo de regresión lineal múltiple
 
 ```{r librerias}
 # Cargar librerías
@@ -398,4 +398,6 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   theme(legend.position = "none")
 ```
 
-# 
+## Modelos no lineales
+
+## Transformación de variables (si aplica)
