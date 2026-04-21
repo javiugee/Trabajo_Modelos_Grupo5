@@ -1,44 +1,91 @@
 # Modelos de Regresión Generalizada (GLM)
 
-En esta sección ampliaremos nuestro análisis utilizando Modelos Lineales Generalizados (GLM). La regresión lineal asume que la variable respuesta es continua y tiene una distribución normal. Sin embargo, en nuestro caso, las calificaciones son números enteros acotados entre 0 y 20, y existe una clara asimetría en su distribución.
+En esta sección ampliaremos nuestro análisis utilizando Modelos Lineales Generalizados (GLM). La regresión lineal múltiple asume que la variable respuesta es continua y tiene una distribución normal. Sin embargo, en nuestro caso, las calificaciones son números enteros acotados entre 0 y 20, y existe una clara asimetría en su distribución.
 
-Para estudiar esto, planteamos dos enfoques generalizados:
-1. Un modelo de **Regresión Logística** para predecir la probabilidad de que un alumno apruebe o suspenda.
-2. Un modelo de **Regresión de Poisson** para modelar la nota exacta como un dato de conteo.
+Para estudiar esto, omitiremos las notas parciales (G1 y G2) ya que están fuertemente correlacionadas con la nota final y, para que no absorban toda la variabilidad y podamos analizar el impacto real de los factores sociales y académicos, planteamos dos enfoques generalizados:
 
-Para poder llevarlo a cabo correctamente, vamos a omitir las notas parciales ya al estar tan fuertemente correlacionadas con la nota final, su presencia absorbería casi toda la capacidad predictiva del modelo, ocultando el efecto de las variables sociales y de comportamiento que realmente nos interesa descubrir.
+1.  Un modelo de **Regresión Logística** para predecir la probabilidad de que un alumno apruebe o suspenda.
+
+2.  Un modelo de **Regresión de Poisson** para modelar la nota exacta como un dato de conteo.
+
+3.  Un modelo **Binomial Negativo** para corregir la posible sobredispersión de los datos.
+
+## **Regresión Logística (Predicción de Aprobado/Suspenso)**
+
+Primero, transformamos nuestra variable continua en una variable binaria donde 1 significa "aprobado" (nota ≥ 10) y 0 "suspenso".
+
+El modelo logístico utiliza la función de enlace logit:
+
+$$\text{logit}(p) = \log\left(\frac{p}{1-p}\right) = \beta_0 + \beta_1 X_1 + \dots + \beta_k X_k$$
 
 ```{r mrg logistica, message=FALSE}
 # Preparación de los datos para regresión logística
 df_mat_glm <- df_mat %>%
-  mutate(aprobado = ifelse(G3 >= 10, 1, 0)) %>%
-  # Convertimos a factor algunas variables categóricas importantes
-  mutate(
-    sex = as.factor(sex),
-    address = as.factor(address),
-    higher = as.factor(higher),
-    internet = as.factor(internet))
+  mutate(aprobado = as.factor(ifelse(G3 >= 10, 1, 0)),
+         sex = as.factor(sex),
+         address = as.factor(address),
+         higher = as.factor(higher),
+         internet = as.factor(internet))
 
 # Ajuste del modelo de Regresión Logística
 modelo_logit <- glm(aprobado ~ sex + address + studytime + failures + absences + higher + internet, 
                     data = df_mat_glm, 
                     family = binomial(link = "logit"))
+
 summary(modelo_logit)
+
+# Extracción de las Odds Ratios (Exponencial de los coeficientes)
+exp(coef(modelo_logit))
 ```
 
+El modelo muestra que variables como los fracasos previos (failures) y las ausencias (absences) tienen un impacto negativo y significativo en la probabilidad de aprobar. Al observar las Odds Ratios, podemos ver que por cada fracaso previo que acumula un estudiante, sus probabilidades de aprobar se reducen gravemente (el multiplicador es menor a 1). Por el contrario, querer cursar estudios superiores (higheryes) multiplica a su favor las probabilidades de éxito.
+
+## Regresión de Poisson y Evaluación de Sobredispersión
+
+Vamos a intentar predecir la nota exacta teniendo en cuenta que la estaremos tratando como una variable de conteo.
+
+Para esto usamos la familia Poisson, con el logaritmo neperiano como función de enlace:
+
+$$\log(\lambda) = \beta_0 + \beta_1 X_1 + \dots + \beta_k X_k$$
 
 ```{r mrg poisson, message=FALSE}
 # Ajuste del modelo de Regresión de Poisson
-modelo_poisson <- glm(G3 ~ sex + studytime + failures + absences + Medu + Fedu + famrel, data = df_mat_glm,  family = poisson(link = "log"))
+modelo_poisson <- glm(G3 ~ sex + studytime + failures + absences + Medu + Fedu + famrel, 
+                      data = df_mat_glm,  
+                      family = poisson(link = "log"))
 summary(modelo_poisson)
 
 # Comprobación de sobredispersión (relación entre la devianza residual y los grados de libertad)
 sobredispersion <- modelo_poisson$deviance / modelo_poisson$df.residual
 cat("Ratio de Sobredispersión:", sobredispersion, "\n")
 ```
-La regresión de Poisson asume que la media y la varianza son iguales. Al calcular el Ratio de Sobredispersión, si el valor es cercano a 1, el modelo de Poisson es adecuado.En caso contrario, si el ratio es mucho mayor que 1, significa que hay "sobredispersión" en los datos y significa que otro modelo nos podría ayudar más en cara a nuestro estudio.
 
-## Conclusiones de ambos modelos
-Como hemos podido comprobar, la regresión logística nos muestra que es altamente efectiva para evaluar el riesgo de suspenso, destacando el peso negativo de los fracasos previos y el impacto positivo de las horas de estudio. Por otro lado, la regresión de poisson, nos muestra ciertas limitaciones ligadas a la sobredispersión de los datos.
+La regresión de Poisson asume que la media y la varianza son iguales. Al calcular el Ratio de Sobredispersión, si el valor es cercano a 1, el modelo de Poisson es adecuado.En caso contrario, si el ratio es mucho mayor que 1, significa que hay sobredispersión en los datos y significa que otro modelo nos podría ayudar más en cara a nuestro estudio.
+
+En este caso, vemos como el Ratio de Sobredispersión es superior a 1, y tenemos un problema de sobredispersión, que significa que hay más varianza en los datos que la que asume el modelo. Esto provoca que los errores estándar calculados sean artificialmente bajos, llevándonos a creer que ciertas variables son significativas cuando en realidad no lo son.
+
+## Corrección con Modelo Binomial Negativo
+
+Para solucionar la sobredispersión detectada en el modelo de Poisson sin perder la interpretabilidad de la regresión de conteo, ajustaremos un modelo de **Regresión Binomial Negativa**. Este modelo flexibiliza la restricción de varianza introduciendo un nuevo parámetro de dispersión \$θ\$ que nos permite obtener errores estándar precisos y evaluar correctamente la significatividad de nuestras variables.
+
+```{r mrg binomial negativa, message=FALSE}
+# Ajuste del modelo de Regresión Binomial Negativa
+modelo_nb <- glm.nb(G3 ~ sex + studytime + failures + absences + Medu + Fedu + famrel, 
+                    data = df_mat_glm)
+
+summary(modelo_nb)
+
+# Para comparar directamente si el modelo mejora respecto al Poisson, podemos mirar el AIC
+cat("AIC Poisson:", AIC(modelo_poisson), "\n")
+cat("AIC Binomial Negativa:", AIC(modelo_nb), "\n")
+```
+
+Como podemos observar, si el modelo de Binomial Negativa es mejor ajuste que el de Poisson, normalmente veremos una reducción importante en el valor AIC (Akaike Information Criterion), lo que indica una mejor calidad del modelo penalizando la complejidad del modelo. Además al corregir los errores estándar por la sobredispersión, podemos ver qué variables siguen siendo estadísticamente significativas, son aquellas que están marcadas con asteriscos.
+
+## Conclusiones de Modelación Generalizada
+
+Como hemos podido comprobar, la regresión logística nos muestra que es altamente efectiva para evaluar el riesgo de suspenso, destacando que el peso de los fracasos académicos, el ausentismo y la ambición de acceder a la educación superior son los predictores sociológicos más determinantes en el éxito de las asignaturas.
+
+Por otro lado, la regresión de poisson, nos muestra ciertas limitaciones ligadas a la sobredispersión de los datos.Al aplicar la regresión Binomial Negativa, logramos acomodar esa varianza extra, haciendo que nuestras inferencias sobre las variables continuas o de conteo sean mucho más fiables.
 
 En conclusión, transformar la calificación final en una variable binaria (aprobado/suspenso) mediante el modelo logístico resulta ser la mejor opción porque es la más sólida e interpretable de este apartado. Este enfoque no solo acaba con el problema de la asimetría en la distribución de las notas de 0 a 20, sino que además ofrece conclusiones más directas y aplicables para posibles intervenciones educativas en el centro escolar.
