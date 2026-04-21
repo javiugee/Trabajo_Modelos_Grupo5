@@ -397,3 +397,5 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   theme_minimal() +
   theme(legend.position = "none")
 ```
+
+# 
