@@ -203,6 +203,8 @@ metodos_automaticos <- data.frame(
 print(metodos_automaticos)
 ```
 
+Como se puede observar en la tabla, los tres métodos muestran los mismos resultados. Dado que el R2 ajustado es 0.834427, significa que con nuestro modelo queda explicada el 83.44% de la variabilidad total.
+
 ### Comparación de las variables seleccionadas
 
 ```{r comparacion seleccion}
@@ -220,6 +222,7 @@ comparacion_seleccion <- data.frame(
 
 print(comparacion_seleccion)
 ```
+En este caso se observa que todos los métodos descartaron todas las variables excepto la variable edad.
 
 ## Regularización
 
@@ -398,6 +401,7 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   theme(legend.position = "none")
 ```
 
-## Modelos no lineales
+Tras comparar los tres métodos de regularización, el modelo Ridge es el que menor error cuadrático ha obtenido (con un 2.47). Sin embargo, este modelo utiliza 41 variables, mientras que el modelo Lasso (que tiene un error igual a 2.5), únicamente mantiene 3 variables. Por lo que el mejor modelo es el modelo Lasso, debido a su simplicidad.
 
-## Transformación de variables (si aplica)
+## Modelos no lineales y transformación de variables
+
