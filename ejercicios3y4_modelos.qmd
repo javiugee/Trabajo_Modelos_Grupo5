@@ -91,7 +91,7 @@ cat(paste(vars_mejor_bic, collapse = ", "), "\n")
 p1 <- ggplot(subset_results, aes(x = n_vars, y = R2_adj)) +
   geom_point(color = "blue", size = 2) +
   geom_line(color = "blue") +
-  geom_point(aes(x = mejor_r2_adj_idx, y = R2_adj[mejor_r2_adj_idx]), 
+  geom_point(data = subset_results[mejor_r2_adj_idx, ], 
              color = "red", size = 4) +
   labs(title = "R² Ajustado - Best Subset",
        x = "Número de Variables", y = "R² Ajustado") +
@@ -102,7 +102,7 @@ p2 <- ggplot(subset_results, aes(x = n_vars, y = Cp)) +
   geom_point(color = "purple", size = 2) +
   geom_line(color = "purple") +
   geom_abline(intercept = 1, slope = 1, color = "red", linetype = "dashed") +
-  geom_point(aes(x = mejor_cp_idx, y = Cp[mejor_cp_idx]), 
+  geom_point(data = subset_results[mejor_cp_idx, ], 
              color = "red", size = 4) +
   labs(title = "Cp de Mallows - Best Subset",
        x = "Número de Variables", y = "Cp") +
@@ -112,7 +112,7 @@ p2 <- ggplot(subset_results, aes(x = n_vars, y = Cp)) +
 p3 <- ggplot(subset_results, aes(x = n_vars, y = BIC)) +
   geom_point(color = "green", size = 2) +
   geom_line(color = "green") +
-  geom_point(aes(x = mejor_bic_idx, y = BIC[mejor_bic_idx]), 
+  geom_point(data = subset_results[mejor_bic_idx, ], 
              color = "red", size = 4) +
   labs(title = "BIC - Best Subset",
        x = "Número de Variables", y = "BIC") +
@@ -222,8 +222,6 @@ print(comparacion_seleccion)
 ```
 
 ## Regularización
-
-Aplicaremos dos métodos de regularización: Lasso y Ridge.
 
 ```{r regularizacion}
 # Creamos las matrices
@@ -364,7 +362,7 @@ elastic_rmse <- sqrt(mean((elastic_pred - y_test)^2))
 cat("RMSE:", round(elastic_rmse, 3), "\n")
 
 # Coeficientes finales
-elastic_coefs <- predict(elastic_model, type = "coefficients", s = lambda_elastic_min)[1:14, ]
+elastic_coefs <- predict(elastic_model, type = "coefficients", s = lambda_elastic_min)[, 1]
 print(round(elastic_coefs, 4))
 
 # Variables seleccionadas por Elastic Net
@@ -381,11 +379,11 @@ comparacion_reg <- data.frame(
   Metodo = c("Ridge (min)", "Ridge (1SE)", "Lasso (min)", "Lasso (1SE)", "Elastic Net"),
   RMSE = c(ridge_rmse_min, ridge_rmse_1se, lasso_rmse_min, lasso_rmse_1se, elastic_rmse),
   N_Variables = c(sum(abs(ridge_coefs[-1]) > 1e-6),
-                  sum(abs(predict(ridge_model, type = "coefficients", s = lambda_ridge_1se)[2:14, ]) > 1e-6),
+                  sum(abs(predict(ridge_model, type = "coefficients", s = lambda_ridge_1se)[-1, 1]) > 1e-6),
                   length(vars_lasso),
-                  sum(abs(predict(lasso_model, type = "coefficients", s = lambda_lasso_1se)[2:14, ]) > 1e-6),
+                  sum(abs(predict(lasso_model, type = "coefficients", s = lambda_lasso_1se)[-1, 1]) > 1e-6),
                   length(vars_elastic))
-)
+) # [-1, 1] para quitar el intercepto (-1)
 
 print(comparacion_reg)
 
@@ -399,4 +397,3 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   theme_minimal() +
   theme(legend.position = "none")
 ```
-
