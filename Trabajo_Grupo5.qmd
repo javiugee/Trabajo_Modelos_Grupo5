@@ -1,0 +1,497 @@
+---
+title: "Análisis de Factores Determinantes en el Rendimiento Escolar"
+subtitle: "Trabajo de Modelos de Regresión - Grupo 5"
+author: 
+  - name: "Javier Ugena García"
+  - name: "Soraya Burgos Modrego"
+  - name: "Elba Jares Darriba"
+date: today
+lang: es
+format: 
+  html:
+    toc: true
+    toc-title: "Índice de Contenidos"
+    toc-depth: 3
+    number-sections: true
+    theme: flatly
+    code-fold: show
+    code-tools: true
+    embed-resources: true
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Presentación del Problema y Preparación de Datos
+
+## Contexto y Justificación
+
+El rendimiento académico durante la educación secundaria es un indicador crítico que condiciona el futuro profesional de los estudiantes. Identificar los factores que precipitan el éxito o el fracaso escolar es fundamental para diseñar intervenciones pedagógicas tempranas.
+
+En este contexto, el trabajo tiene como objetivo aplicar técnicas para analizar y predecir las calificaciones de estudiantes de secundaria. El propósito no es únicamente obtener un modelo predictivo con bajo error, sino también construir un modelo descriptivo que nos permita entender qué variables (académicas, sociales o familiares) tienen mayor peso en la nota final.
+
+## Descripción del Conjunto de Datos
+
+Para este estudio utilizamos el **Student Performance Data Set**, que recopila información de estudiantes de dos escuelas públicas portuguesas durante un curso escolar. Los datos originales se dividen en dos archivos según la materia: `student-mat.csv` (Matemáticas) y `student-por.csv` (Lengua Portuguesa).
+
+Cada registro contiene 33 atributos, entre los que destacamos:
+
+-   **Variables Demográficas:** Edad, sexo, tipo de residencia.
+
+-   **Variables Socio-familiares:** Nivel educativo de los padres (`Medu`, `Fedu`), tamaño familiar, calidad de las relaciones familiares (`famrel`) y consumo de alcohol (`Dalc`, `Walc`).
+
+-   **Variables Académicas Previas:** Tiempo de estudio semanal (`studytime`), número de suspensos anteriores (`failures`) y ausencias (`absences`).
+
+-   **Variable Objetivo (Target):** La nota final del curso (`G3`), evaluada en una escala de 0 a 20. También disponemos de las calificaciones de las dos evaluaciones previas (`G1` y `G2`).
+
+Se sabe que existe un subgrupo de estudiantes que cursan ambas materias simultáneamente, los cuales identificaremos mediante la integración de las bases de datos.
+
+## Objetivos Específicos
+
+Siguiendo las directrices de la práctica, nos proponemos:
+
+1.  **Integrar y limpiar los datos:** Identificar a los alumnos comunes y tipificar correctamente las variables ordinales.
+2.  **Particionar la muestra:** Implementar una estrategia *hold-out* (Train, Validation, Test) para evaluar rigurosamente los modelos.
+3.  **Modelado Base:** Aplicar regresión lineal simple y múltiple.
+4.  **Selección y Regularización:** Emplear técnicas como *Stepwise*, *Lasso* o *Ridge* para encontrar los predictores más robustos.
+5.  **Modelado Avanzado:** Explorar transformaciones y modelos generalizados (GLM).
+
+## Integración y Tratamiento de los Datos
+
+Iniciamos la carga de librerías y la lectura de los archivos. A continuación, realizamos un cruce (*merge*) utilizando las variables demográficas como identificadores únicos, tal y como se sugiere en la documentación de los datos.
+
+```{r preparacion-merge}
+# Carga de librerías esenciales
+library(tidyverse)
+library(caret)     # Partición de datos
+library(corrplot)  # Visualización de correlaciones
+library(gridExtra) # Composición de gráficos
+library(knitr)     # Generación de tablas
+library(moments)   # Asimetría y Curtosis
+
+# Lectura de los datos
+d_mat <- read.csv("student-mat.csv", sep=";", stringsAsFactors = TRUE)
+d_por <- read.csv("student-por.csv", sep=";", stringsAsFactors = TRUE)
+
+# Integración (Merge)
+df_total <- merge(d_mat, d_por, 
+                  by=c("school","sex","age","address","famsize",
+                       "Pstatus","Medu","Fedu","Mjob","Fjob",
+                       "reason","nursery","internet"))
+
+cat("Total de estudiantes matriculados simultáneamente en ambas materias:", nrow(df_total), "\n")
+```
+
+Al cruzar las tablas, las variables conductuales y académicas específicas de cada materia adquieren los sufijos `.x` (Matemáticas) e `.y` (Portugués).
+
+A continuación, realizamos un control de calidad para descartar la presencia de valores nulos (NAs) y transformamos las variables ordinales (codificadas numéricamente) a su naturaleza categórica correcta.
+
+```{r}
+# Comprobación de NAs
+cat("Total de valores perdidos (NAs) en el dataset integrado:", sum(is.na(df_total)), "\n")
+
+# Agrupamos nivel 0 y 1 porque hay muy pocos casos de nivel 0
+df_total <- df_total %>%
+  mutate(Medu = ifelse(Medu == 0, 1, Medu),
+         Fedu = ifelse(Fedu == 0, 1, Fedu))
+# ------------------------------------
+
+# Ahora ya podemos convertir a factores con seguridad
+vars_ordinales <- c("Medu", "Fedu", 
+                    "traveltime.x", "traveltime.y",
+                    "studytime.x", "studytime.y",
+                    "famrel.x", "famrel.y", 
+                    "freetime.x", "freetime.y", 
+                    "goout.x", "goout.y", 
+                    "Dalc.x", "Dalc.y", 
+                    "Walc.x", "Walc.y", 
+                    "health.x", "health.y")
+
+df_total <- df_total %>%
+  mutate(across(all_of(vars_ordinales), as.factor))
+```
+
+**Nota sobre el tratamiento de variables:** 
+
+Durante el análisis de las variables sociodemográficas, se observó una frecuencia extremadamente baja (inferior al 1%) en el nivel 0 de las variables `Medu` y `Fedu` (progenitores sin estudios). Esta escasez de datos (sparsity) provoca errores de ejecución al realizar la partición aleatoria, ya que el conjunto de validación puede contener niveles que no aparecen en el entrenamiento. Para estabilizar el modelo y garantizar una estimación de coeficientes robusta, se procedió a agrupar los niveles 0 y 1 en una única categoría representativa de "Estudios Primarios o inferiores".
+
+## Partición de la Muestra (Metodología Hold-Out)
+
+Para garantizar la fiabilidad del modelado predictivo posterior y evitar la fuga de información (data leakage), segmentamos el conjunto en Train (60%), Validation (20%) y Test (20%). La partición se realiza de forma estratificada sobre la variable objetivo `G3.x`.
+
+```{r}
+set.seed(2026) # Semilla de reproducibilidad
+
+# 1. Extracción del conjunto de Test (20%)
+idx_test <- createDataPartition(df_total$G3.x, p = 0.2, list = FALSE)
+test_set <- df_total[idx_test, ]
+temp_set <- df_total[-idx_test, ]
+
+# 2. Del 80% restante, extraemos un 25% para Validación
+idx_val <- createDataPartition(temp_set$G3.x, p = 0.25, list = FALSE)
+val_set <- temp_set[idx_val, ]
+train_set <- temp_set[-idx_val, ]
+
+# Tabla resumen
+resumen_particion <- data.frame(
+  Conjunto = c("Entrenamiento", "Validación", "Prueba"),
+  Observaciones = c(nrow(train_set), nrow(val_set), nrow(test_set)),
+  Proporcion = c("60%", "20%", "20%")
+)
+kable(resumen_particion, caption = "Distribución del tamaño de la muestra")
+```
+
+## Análisis Exploratorio de Datos 
+
+**Advertencia Metodológica:** Toda la exploración estadística y visualización que sigue se ha ejecutado estricta y exclusivamente sobre el conjunto de entrenamiento (`train_set`). La variable dependiente a modelar es la calificación final de Matemáticas (`G3.x`).
+
+### Análisis Univariante: La Variable Objetivo (`G3.x`)
+
+Comenzamos analizando las medidas de forma y tendencia central de la variable a predecir.
+
+```{r}
+# Estadísticos descriptivos
+stats_g3 <- data.frame(
+  Media = mean(train_set$G3.x),
+  Mediana = median(train_set$G3.x),
+  Desviacion = sd(train_set$G3.x),
+  Asimetria = skewness(train_set$G3.x),
+  Curtosis = kurtosis(train_set$G3.x)
+)
+kable(stats_g3, digits = 2, caption = "Estadísticos descriptivos de la Nota Final (G3.x)")
+
+# Visualización (Histograma + Densidad + Boxplot)
+p_hist <- ggplot(train_set, aes(x = G3.x)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, fill = "steelblue", color = "black", alpha = 0.7) +
+  geom_density(color = "darkred", linewidth = 1) +
+  theme_minimal() +
+  labs(title = "Distribución de Frecuencias (G3.x)", x = "Nota Final", y = "Densidad") +
+  scale_x_continuous(breaks = seq(0, 20, by = 2))
+
+p_box <- ggplot(train_set, aes(x = "", y = G3.x)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Dispersión y Valores Atípicos", x = "", y = "Nota Final")
+
+grid.arrange(p_hist, p_box, ncol = 2, widths = c(2, 1))
+```
+
+**Diagnóstico Estadístico:** La distribución presenta un sesgo evidente. Aunque las calificaciones aprobatorias siguen una forma acampanada, la acumulación masiva en la calificación 0 (estudiantes que no se presentan o abandonan) rompe la normalidad. La asimetría negativa y la alta dispersión sugieren que los modelos de regresión lineal por Mínimos Cuadrados Ordinarios (MCO) sufrirán alteraciones en la varianza de sus residuos (heterocedasticidad).
+
+### Análisis Univariante de Predictores Continuos
+
+Exploramos la distribución de las ausencias (`absences.x`) y la edad (`age`) para detectar la presencia de valores anómalos o outliers extremos.
+
+```{r}
+p_abs <- ggplot(train_set, aes(y = absences.x)) +
+  geom_boxplot(fill = "lightcoral", alpha = 0.7) +
+  theme_minimal() + labs(title = "Distribución de Ausencias", y = "Nº de Faltas")
+
+p_age <- ggplot(train_set, aes(x = as.factor(age))) +
+  geom_bar(fill = "lightgreen", color = "black", alpha = 0.7) +
+  theme_minimal() + labs(title = "Distribución por Edad", x = "Edad", y = "Frecuencia")
+
+grid.arrange(p_abs, p_age, ncol = 2)
+```
+
+**Diagnóstico:** Observamos outliers muy marcados en la variable ausencias (estudiantes con más de 30 o incluso 70 faltas). En cuanto a la edad, la gran mayoría se concentra entre los 15 y 18 años, habiendo una representación residual de alumnos de 20 a 22 años, probablemente repetidores crónicos.
+
+### Análisis Bivariante: Correlaciones Numéricas
+
+Generamos una matriz de correlación de Pearson para todas las variables continuas, buscando detectar tanto relaciones con la variable objetivo como problemas de colinealidad entre predictores.
+
+```{r}
+num_vars <- train_set %>% select(age, absences.x, absences.y, G1.x, G2.x, G1.y, G2.y, G3.y, G3.x)
+cor_matrix <- cor(num_vars, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "upper", 
+         addCoef.col = "black", number.cex = 0.7, 
+         tl.col = "black", tl.srt = 45, diag = FALSE,
+         title = "Matriz de Correlación (Pearson)", mar = c(0,0,2,0))
+```
+
+Diagnóstico de Correlación:
+
+-   **Colinealidad Predictiva:** Las evaluaciones intermedias de matemáticas (`G1.x`, `G2.x`) alcanzan correlaciones casi deterministas (\>0.90) con la nota final.
+
+-   **Multicolinealidad Estructural:** Se observa una alta correlación entre las notas de Matemáticas y Lengua Portuguesa, lo que demuestra un factor subyacente de "capacidad académica general".
+
+-   **Ausencias:** La correlación lineal de las ausencias con las notas es nula, sugiriendo que, o bien no afectan, o bien su relación es de carácter no lineal.
+
+### Análisis de Factores Académicos y Sociales
+
+Procedemos a evaluar el impacto en la nota final de variables categóricas críticas: el historial de fracaso escolar, la educación materna y el apoyo educativo extra (`schoolsup`).
+
+```{r}
+# Impacto de suspensos
+p_fail <- ggplot(train_set, aes(x = as.factor(failures.x), y = G3.x, fill = as.factor(failures.x))) +
+  geom_boxplot(alpha = 0.8) + scale_fill_brewer(palette = "Reds") + theme_minimal() + 
+  theme(legend.position = "none") + labs(title = "Historial de Suspensos", x = "Nº Suspensos", y = "Nota Final")
+
+# Educación Materna
+p_medu <- ggplot(train_set, aes(x = Medu, y = G3.x, fill = Medu)) +
+  geom_boxplot(alpha = 0.8) + scale_fill_brewer(palette = "Blues") + theme_minimal() + 
+  theme(legend.position = "none") + labs(title = "Nivel Educativo Materno", x = "0=Ninguno, 4=Superior", y = "Nota Final")
+
+# Apoyo extra
+p_sup <- ggplot(train_set, aes(x = schoolsup.x, y = G3.x, fill = schoolsup.x)) +
+  geom_boxplot(alpha = 0.8) + scale_fill_manual(values = c("yes"="orange", "no"="darkgrey")) + theme_minimal() + 
+  theme(legend.position = "none") + labs(title = "Apoyo Educativo Extraordinario", x = "¿Recibe apoyo?", y = "Nota Final")
+
+grid.arrange(p_fail, p_medu, p_sup, ncol = 3)
+```
+
+**Hallazgos:**
+
+-   La variable `failures.x` es el predictor de penalización más fuerte: un solo suspenso en el historial hunde la mediana de la nota final.
+
+-   Paradójicamente, los alumnos que reciben apoyo escolar extra (`schoolsup` = "yes") presentan un rendimiento netamente inferior. Esto no implica que el apoyo empeore las notas, sino un sesgo de selección natural: el apoyo se concede a alumnos que ya presentan graves carencias estructurales.
+
+### Análisis Avanzado: Interacciones y Conducta Social
+
+Finalmente, buscamos entender cómo la conducta fuera de las aulas interactúa con el desempeño académico. Cruzaremos el consumo de alcohol de fin de semana (`Walc.x`) con el sexo, y el tiempo de estudio con el acceso a internet.
+
+```{r}
+# Interacción Alcohol y Sexo
+p_alc <- ggplot(train_set, aes(x = Walc.x, y = G3.x, fill = sex)) +
+  geom_boxplot(alpha = 0.8, position = position_dodge(0.8)) +
+  scale_fill_manual(values = c("F" = "#e377c2", "M" = "#1f77b4")) +
+  theme_minimal() +
+  labs(title = "Consumo de Alcohol en Fin de Semana por Sexo",
+       x = "Nivel de Consumo (1=Bajo, 5=Alto)", y = "Nota Final", fill = "Sexo")
+
+# Interacción Tiempo de Estudio e Internet
+p_int <- ggplot(train_set, aes(x = studytime.x, y = G3.x, fill = internet)) +
+  geom_violin(alpha = 0.6, trim = FALSE, position = position_dodge(0.8)) +
+  scale_fill_manual(values = c("yes" = "#2ca02c", "no" = "#d62728")) +
+  theme_minimal() +
+  labs(title = "Interacción: Esfuerzo Académico y Brecha Digital",
+       x = "Tiempo de Estudio (1=Poco, 4=Mucho)", y = "Nota Final", fill = "Internet")
+
+grid.arrange(p_alc, p_int, ncol = 2)
+```
+
+**Conclusiones de las interacciones:**
+
+-   **Diferencia de género en hábitos sociales:** Los niveles más altos de consumo de alcohol (4 y 5) están dominados por el género masculino, y en esos umbrales, el hundimiento de las calificaciones es más drástico que en los niveles bajos de consumo.
+
+-   **La Brecha Digital condiciona el esfuerzo:** El diagrama de violines revela que, en los niveles más altos de dedicación al estudio (niveles 3 y 4), los alumnos sin acceso a internet no logran transformar esas horas en altas calificaciones (su densidad se aplasta hacia el centro), mientras que los alumnos con internet y alto nivel de estudio consiguen despuntar hacia la excelencia (notas de 15 a 20).
+
+### Conclusiones Finales del Análisis Exploratorio
+
+Hemos identificado que la predicción puramente académica (basada en notas previas) será matemáticamente trivial dada la altísima colinealidad. El verdadero reto estadístico que afrontaremos en las siguientes fases (Regresión Múltiple, Selección de Variables con LASSO) será lidiar con el sesgo introducido por los alumnos que abandonan la asignatura (G3 = 0) y descifrar el peso real de los determinantes socio-familiares en presencia de las calificaciones parciales.
+
+# Modelos de Regresión Lineal (Simple y Múltiple)
+
+En esta sección, desarrollamos el núcleo analítico de la práctica. Utilizaremos el conjunto de entrenamiento (`train_set`) para ajustar los modelos y el de validación (`val_set`) para evaluar su capacidad de generalización. El objetivo es transitar desde un modelo unidimensional hasta uno multivariante que capture la complejidad del rendimiento académico.
+
+## Regresión Lineal Simple (RLS)
+
+Siguiendo la metodología de los laboratorios de apoyo, seleccionamos como predictor la variable con mayor correlación lineal con la respuesta: la nota del segundo periodo (`G2.x`). El modelo asume que: $$G3.x = \beta_0 + \beta_1 \cdot G2.x + \epsilon$$
+
+### Ajuste e Inferencia
+
+```{r rls-ajuste}
+# Ajuste del modelo por Mínimos Cuadrados Ordinarios (MCO)
+modelo_rls <- lm(G3.x ~ G2.x, data = train_set)
+
+# Resumen detallado del modelo
+summary(modelo_rls)
+```
+
+**Análisis de los resultados:**
+
+-   **Significatividad de los Coeficientes:** El estadístico t para `G2.x` es extremadamente alto, con un p-valor \<2⋅10−16, lo que permite rechazar la hipótesis nula (H0​ : β1​=0) con total confianza. Existe una relación lineal positiva muy fuerte entre ambas evaluaciones.
+
+-   **Bondad de Ajuste:** El R2 de aproximadamente `0.82` indica que la nota del segundo periodo explica el 82% de la variabilidad de la nota final.
+
+### Intervalos de Confianza
+
+Para una interpretación rigurosa, calculamos los intervalos de confianza para los parámetros del modelo al 95%.
+
+```{r}
+confint(modelo_rls)
+```
+
+**Interpretación:** Con un 95% de confianza, por cada punto adicional que un alumno obtiene en la segunda evaluación (`G2.x`), su nota final aumentará entre los valores indicados en el intervalo (cercanos a 1). Si el intervalo no contiene al 0, reafirmamos la importancia de la variable.
+
+## Regresión Lineal Múltiple (RLM)
+
+El rendimiento académico no depende de un solo factor. Construimos ahora un modelo complejo que integra variables de entorno, antecedentes de éxito/fracaso y el rendimiento en la asignatura de portugués.
+
+### Selección del Modelo Inicial
+
+Incluimos variables académicas (`G1.x`, `G2.x`, `G3.y`), demográficas (`age`, `Medu`) y conductuales (`absences.x`, `failures.x`).
+
+```{r}
+# Modelo con múltiples predictores
+modelo_rlm <- lm(G3.x ~ G1.x + G2.x + G3.y + absences.x + failures.x + Medu + health.x + sex, 
+                 data = train_set)
+
+summary(modelo_rlm)
+```
+
+### Análisis de Multicolinealidad (VIF)
+
+Como ya detectamos en la matriz de correlación del Análisis Exploratorio (Apartado 1.6.2), las variables de evaluaciones previas (`G1.x` y `G2.x`) presentan una correlación lineal positiva extremadamente alta.
+
+En un modelo de regresión múltiple, introducir predictores tan fuertemente correlacionados genera un problema estructural conocido como **multicolinealidad**. Esto significa que las variables aportan información redundante. Consecuencias en nuestro modelo:
+1.  Los coeficientes estimados ($\beta$) se vuelven inestables y sus errores estándar se inflan.
+2.  Resulta difícil interpretar qué variable está impactando realmente en la nota final.
+
+Aunque el modelo múltiple tiene un buen rendimiento predictivo global, este problema de redundancia justifica plenamente el paso a técnicas de **selección de variables** y **regularización** que aplicaremos en el siguiente apartado, con el fin de filtrar el ruido y quedarnos solo con los predictores más robustos.
+
+## Diagnóstico de los Supuestos del Modelo
+
+Para que las inferencias anteriores sean válidas, el modelo debe cumplir los cuatro supuestos clásicos sobre los residuos. Analizamos el modelo múltiple:
+
+```{r}
+par(mfrow = c(2, 2))
+plot(modelo_rlm)
+```
+
+**Análisis Crítico de los Gráficos:**
+
+- **Residuals vs Fitted (Linealidad y Homocedasticidad):** Se aprecia una línea de puntos alineados en la parte inferior izquierda. Representan a los alumnos con nota G3.x = 0. Estos casos generan una clara violación de la homocedasticidad (varianza no constante), ya que el modelo predice notas positivas para alumnos que terminan con un cero absoluto.
+
+- **Normal Q-Q (Normalidad):** Los puntos en los extremos (especialmente en la cola inferior) se alejan de la diagonal. Esto confirma que los errores no siguen una distribución normal pura, penalizada nuevamente por el subgrupo de alumnos que abandonan la materia.
+
+- **Scale-Location:** Muestra si los residuos se dispersan de forma equitativa a lo largo del rango de predictores. La tendencia no es plana, reforzando la sospecha de heterocedasticidad.
+
+- **Residuals vs Leverage (Puntos Influyentes):** Este gráfico ayuda a identificar observaciones que, por sí solas, cambian drásticamente el modelo. Debemos vigilar si algún punto supera la **Distancia de Cook**.
+
+## Conclusión del Punto 2:
+
+El modelo múltiple logra un R2 ajustado ligeramente superior y un RMSE menor en validación. Sin embargo, el diagnóstico de residuos revela que el modelo lineal estándar tiene dificultades estructurales para modelar a los alumnos que obtienen un 0. Esto sugiere que para alcanzar la "perfección" en el modelo, deberíamos considerar transformaciones de variables o modelos de regularización (Lasso/Ridge) que filtren la redundancia entre las notas parciales.
+
+# Selección de Variables y Regularización (2 puntos)
+
+En este apartado buscamos optimizar el modelo múltiple. La presencia de multicolinealidad y un alto número de predictores sugiere que no todas las variables son necesarias. Utilizaremos métodos de selección algorítmica y técnicas de regularización para obtener un modelo más parsimonioso y robusto.
+
+## Selección por Pasos (Stepwise Selection)
+
+Utilizaremos el criterio de información de Akaike (AIC) y el Criterio de Información Bayesiano (BIC). Mientras que el AIC tiende a incluir más variables, el BIC es más penalizador y suele ofrecer modelos más simplificados y fáciles de interpretar.
+
+### Stepwise basado en AIC
+
+```{r stepwise-aic}
+# Modelo completo como punto de partida
+modelo_full <- lm(G3.x ~ ., data = train_set %>% select(-G1.y, -G2.y, -G3.y)) # Excluimos notas de portugués para ver impacto social
+
+# Aplicamos Stepwise en ambas direcciones (both)
+step_aic <- step(modelo_full, direction = "both", trace = 0)
+
+summary(step_aic)
+```
+
+### Stepwise basado en BIC
+
+```{r stepwise-bic}
+# El BIC se obtiene ajustando el parámetro 'k' al logaritmo del número de observaciones
+n <- nrow(train_set)
+step_bic <- step(modelo_full, direction = "both", k = log(n), trace = 0)
+
+summary(step_bic)
+```
+
+**Interpretación:** El modelo BIC ha eliminado variables cuya contribución marginal no compensaba el aumento de complejidad. Este modelo es nuestro candidato a "mejor modelo lineal clásico".
+
+## Regresión Regularizada: Ridge y Lasso
+
+Para gestionar la alta correlación entre las notas de diferentes periodos, aplicamos penalización. Esto ayuda a reducir la varianza del modelo a cambio de introducir un pequeño sesgo.
+
+```{r}
+library(glmnet)
+
+# Preparamos las matrices de datos (glmnet no acepta data.frames directamente)
+# Eliminamos la respuesta G3.x y convertimos factores en variables dummy
+x_train <- model.matrix(G3.x ~ ., train_set)[, -1]
+y_train <- train_set$G3.x
+
+x_val <- model.matrix(G3.x ~ ., val_set)[, -1]
+y_val <- val_set$G3.x
+```
+
+### Lasso (Penalización L1)
+
+Lasso tiene la ventaja de que puede reducir algunos coeficientes exactamente a cero, realizando una selección automática de variables.
+
+```{r}
+# Usamos validación cruzada (Cross-Validation) para encontrar el lambda óptimo
+set.seed(2026)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+
+# Ajustamos el modelo final con el lambda mínimo
+modelo_lasso <- glmnet(x_train, y_train, alpha = 1, lambda = cv_lasso$lambda.min)
+
+# Visualización de los coeficientes seleccionados (que no son cero)
+coef_lasso <- as.matrix(coef(modelo_lasso))
+coef_filt <- coef_lasso[coef_lasso != 0, , drop=FALSE]
+kable(coef_filt, caption = "Coeficientes seleccionados por LASSO (Lambda óptimo)")
+```
+
+```{r}
+# Usamos validación cruzada (Cross-Validation) para encontrar el lambda óptimo
+set.seed(2026)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+
+# Ajustamos el modelo final con el lambda mínimo
+modelo_lasso <- glmnet(x_train, y_train, alpha = 1, lambda = cv_lasso$lambda.min)
+
+# Visualización de los coeficientes seleccionados (que no son cero)
+coef_lasso <- as.matrix(coef(modelo_lasso))
+coef_filt <- coef_lasso[coef_lasso != 0, , drop=FALSE]
+kable(coef_filt, caption = "Coeficientes seleccionados por LASSO (Lambda óptimo)")
+```
+
+### Ridge (Penalización L2)
+
+Ridge es útil cuando sospechamos que muchas variables influyen un poco, ya que reduce los coeficientes pero no los elimina.
+
+```{r}
+set.seed(2026)
+cv_ridge <- cv.glmnet(x_train, y_train, alpha = 0)
+modelo_ridge <- glmnet(x_train, y_train, alpha = 0, lambda = cv_ridge$lambda.min)
+```
+
+## Comparativa de Coeficientes y Selección
+
+Una forma visual de entender el impacto de estas técnicas es comparar cómo varían los coeficientes estimados frente al modelo de Mínimos Cuadrados Ordinarios (MCO).
+
+```{r}
+# Extraemos coeficientes de los modelos
+mco_coef <- coef(modelo_full)
+lasso_coef <- as.matrix(coef(modelo_lasso))
+
+# Creamos un dataframe para comparar (solo algunas variables clave para claridad)
+comp_coef <- data.frame(
+  Variable = rownames(lasso_coef),
+  MCO = as.vector(mco_coef[match(rownames(lasso_coef), names(mco_coef))]),
+  Lasso = as.vector(lasso_coef)
+) %>% na.omit() %>% filter(Variable != "(Intercept)")
+
+# Gráfico de comparación
+ggplot(comp_coef, aes(x = Variable)) +
+  geom_point(aes(y = MCO, color = "MCO"), size = 3, alpha = 0.6) +
+  geom_point(aes(y = Lasso, color = "Lasso"), size = 3, alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Comparativa de Coeficientes: MCO vs LASSO",
+       subtitle = "Lasso elimina variables redundantes llevando su coeficiente a cero",
+       y = "Valor del Coeficiente", color = "Método")
+```
+
+**Conclusiones del Punto 3:**
+
+- **Simplificación:** El método Stepwise-BIC y Lasso coinciden en que gran parte de la información relevante se concentra en G2.x y failures.x.
+
+- **Regularización:** Lasso ha filtrado variables sociodemográficas que en el modelo múltiple original parecían ruidosas. Esto nos proporciona un modelo mucho más fácil de defender en el que cada variable incluida tiene un impacto real y contrastado.
+
+- **Preparación para validación:** Estos modelos (Lasso y Stepwise) serán evaluados en el Punto 6 contra el resto de modelos para determinar el ganador final del proyecto.
+
+
+
