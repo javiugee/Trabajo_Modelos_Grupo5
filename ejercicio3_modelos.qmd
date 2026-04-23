@@ -38,15 +38,17 @@ library(knitr)
 set.seed(123)
 ```
 
-## Selección de variables
+## Selección de variables y regularización
 
 Vamos a seleccionar el mejor subconjunto de variables.
 
-### Métodos de selección exhaustiva
+### Selección de variables
+
+#### Métodos de selección exhaustiva
 
 Primero vamos a hacerlo a partir de métodos de selección exhaustiva, a partir de "Best Subset Selection".
 
-#### Best Subset Selection
+##### Best Subset Selection
 
 ```{r best subset selection}
 # Realizar best subset selection (evaluamos hasta 15 variables)
@@ -124,7 +126,7 @@ p3 <- ggplot(subset_results, aes(x = n_vars, y = BIC)) +
 grid.arrange(p1, p2, p3, ncol = 2)
 ```
 
-### Métodos automáticos
+#### Métodos automáticos
 
 Ahora vamos a hacerlo con métodos automáticos paso a paso.
 
@@ -136,7 +138,7 @@ modelo_inicial <- lm(G3 ~ 1, data = df_mat) ### df_mat --- train
 modelo_completo_step <- lm(G3 ~ ., data = df_mat) ### df_mat --- train
 ```
 
-#### Forward Selection
+##### Forward Selection
 
 ```{r forward selection}
 # Forward selection usando AIC
@@ -155,7 +157,7 @@ cat("Número de variables:", length(forward_vars), "\n\n")
 summary(forward_aic)
 ```
 
-#### Backward Elimination
+##### Backward Elimination
 
 ```{r backward elimination}
 # Backward elimination usando AIC
@@ -173,7 +175,7 @@ cat("Número de variables:", length(backward_vars), "\n\n")
 summary(backward_aic)
 ```
 
-#### Stepwise Selection
+##### Stepwise Selection
 
 ```{r stepwise selection}
 # Stepwise selection usando AIC
@@ -189,7 +191,7 @@ cat("AIC final:", AIC(stepwise_aic), "\n")
 cat("Número de variables:", length(stepwise_vars), "\n\n")
 ```
 
-### Comparación de los métodos automáticos
+#### Comparación de los métodos automáticos
 
 ```{r comparacion metodos automaticos}
 # Comparación de métodos automáticos
@@ -207,7 +209,7 @@ print(metodos_automaticos)
 
 Como se puede observar en la tabla, los tres métodos muestran los mismos resultados. Dado que el R2 ajustado es 0.834427, significa que con nuestro modelo queda explicada el 83.44% de la variabilidad total.
 
-### Comparación de las variables seleccionadas
+#### Comparación de las variables seleccionadas
 
 ```{r comparacion seleccion}
 # Crear matriz de comparación de variables seleccionadas
@@ -224,9 +226,10 @@ comparacion_seleccion <- data.frame(
 
 print(comparacion_seleccion)
 ```
+
 En este caso se observa que todos los métodos descartaron todas las variables excepto la variable edad.
 
-## Regularización
+### Regularización
 
 ```{r regularizacion}
 # Creamos las matrices
@@ -252,7 +255,7 @@ cat("Variables predictoras:", ncol(X), "\n")
 lambda_grid <- 10^seq(10, -2, length = 100)
 ```
 
-### Modelo Ridge
+#### Modelo Ridge
 
 ```{r ridge}
 # Modelo Ridge (alpha = 0)
@@ -290,7 +293,7 @@ print(round(ridge_coefs, 4))
 plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
 ```
 
-### Modelo Lasso
+#### Modelo Lasso
 
 ```{r lasso}
 # Modelo Lasso (alpha = 1)
@@ -333,7 +336,7 @@ cat("Número de variables seleccionadas:", length(vars_lasso), "\n")
 plot(lasso_cv, main = "Validación Cruzada - Lasso Regression")
 ```
 
-### Elastic Net
+#### Elastic Net
 
 ```{r elastic net}
 # Grid de valores alpha para Elastic Net
@@ -376,7 +379,7 @@ cat("\nVariables seleccionadas por Elastic Net:", paste(vars_elastic, collapse =
 cat("Número de variables seleccionadas:", length(vars_elastic), "\n")
 ```
 
-### Comparación de los métodos de regularización
+#### Comparación de los métodos de regularización
 
 ```{r comparacion regularizacion}
 # Comparar todos los métodos de regularización
@@ -405,203 +408,32 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
 
 Tras comparar los tres métodos de regularización, el modelo Ridge es el que menor error cuadrático ha obtenido (con un 2.47). Sin embargo, este modelo utiliza 41 variables, mientras que el modelo Lasso (que tiene un error igual a 2.5), únicamente mantiene 3 variables. Por lo que el mejor modelo es el modelo Lasso, debido a su simplicidad.
 
-## Modelos no lineales
+## Modelos no lineales y transformación de variables
 
-En el método de Stepwise se queda con 9 variables, que son G2, famrel, absences, G1, age, activitiesyes, Walc, romanticyes y schoolMS. Por lo que en primer lugar vamos a visualizar la relación de todas estas variables frente a G3.
+### Modelos no lineales
 
-Primero para las variables numéricas (G2, famrel, absences, G1, age, Walc):
+En el método de Stepwise se queda con 9 variables, que son "G2", "famrel", "absences", "G1", "age", "activities", "Walc", "romantic" y "school", donde las variables numéricas son "G2", "famrel", "absences", "G1", "age" y "Walc". Por lo que en primer lugar vamos a visualizar la relación de todas estas variables frente a G3.
 
-```{r visualizacion variables numericas seleccionadas}
-# Seleccionamos las variables numéricas
-df_plot_all <- df_mat %>%  ### df_mat --- train
-  dplyr::select(G3, G2, famrel, absences, G1, age, Walc) %>%
-  pivot_longer(cols = -G3, names_to = "Variable", values_to = "Valor")
-
-# Dibujamos los gráficos. Usamos facet_wrap para tener una matriz de 3x3
-ggplot(df_plot_all, aes(x = Valor, y = G3)) +
-  geom_point(alpha = 0.2, color = "#2c3e50") +
-  # Añadimos la curva LOESS (dará un pequeño warning en binarias, es normal y seguro)
-  geom_smooth(method = "loess", color = "#e74c3c", se = FALSE, span = 0.8) +
-  facet_wrap(~Variable, scales = "free_x", ncol = 3) +
-  theme_minimal() +
-  labs(title = "Variables numéricas",
-       subtitle = "La línea roja (LOESS) muestra la tendencia local frente a G3",
-       x = "Valor del predictor", y = "Nota Final (G3)")
+```{r modelos no lineales}
+modelo_lineal <- lm(G3 ~ G1 + G2 +famrel + absences + age +  Walc, data = df_mat) ### df_mat --- train
+car::crPlots(modelo_lineal)
 ```
+En cuanto a la no linealidad para estas variables, para "G1", "G2", "famrel", "age" y "Walc" se puede ver que la línea rosa está prácticamnenete superpuesto a la línea azul, lo que indica que existe una relación de linealidad.
 
-En cuanto a la no linealidad para estas variables, para G1 y G2 se puede ver en ambas gráficas una línea roja ascendente casi perfecta, lo que quiere decir que sí hay linealidad. Y para famrel, age y Walc pasa lo mismo pero con líneas horizontales.
+Sin embargo, en la gráfica de "absences" hay una acumulación de puntos a la izquierda, donde la línea rosa está superpuesta a la azul, pero hay un punto en el que la azul comienza a ascender mientras que la rosa no.
 
-Sin embargo, en la gráfica de absences hay una acuulación de puntos a la izquierda y la línea roja no es recta, sino que al principio asciende un poco y después desciende.
+### Transformación de variables
 
-Y ahora para las variables categóricas (activitiesyes, romanticyes, schoolMS):
+Dado que la única variable que nos puede dar problemas es "absences", vamos a hacer la transformación con ella.
 
-```{r visualizacion variables categoricas seleccionadas}
-# Seleccionamos las variables categóricas
-df_plot_cat <- df_mat %>% ### df_mat --- train
-  dplyr::select(G3, activities, romantic, school) %>%
-  pivot_longer(cols = -G3, names_to = "Variable", values_to = "Categoria")
+#### Transformación Box-Cox
 
-# Dibujamos diagramas de caja (boxplots)
-ggplot(df_plot_cat, aes(x = as.factor(Categoria), y = G3, fill = Variable)) +
-  geom_boxplot(alpha = 0.7, show.legend = FALSE) +
-  facet_wrap(~Variable, scales = "free_x", ncol = 3) +
-  theme_minimal() +
-  scale_fill_brewer(palette = "Set2") +
-  labs(title = "Variables categóricas",
-       x = "Categoría", y = "Nota Final (G3)")
-```
+La transformación Box-Cox nos sirve para optimizar el parámetro de transformación $\lambda$. Lo que hace esta transformación es encontrar el valor $\lambda$ que mejor normaliza los datos. Y según el valor que salga significa que se debe hacer una transformaciíon u otra.
 
-Y en el caso de las gráficas de las variables categóricas, se puede ver que las cajas están casi a la misma altura al igual que las líneas negras para cada caso.
-
-Tras este análisis visual, podemos concluir que la única variable que presenta una no linealidad evidente es "absences".
-
-## Transformación de variables
-
-Dado que la única variable que nos puede dar problemas es "absences", vamos a hacer las transformaciones con ella.
-
-### Transformación logarítmica
-
-```{r transformacion log}
-# Preparamos los datos - sumamos 0.1 para que el logaritmo no se haga de 0
-n <- nrow(df_mat)
-datos_exp <- data.frame(
-  x = df_mat$absences + 0.1, 
-  y = df_mat$G3 + 0.1
-) ### df_mat --- train
-
-# Modelo original (problemático)
-modelo_original <- lm(y ~ x, data = datos_exp)
-
-# Transformación logarítmica de Y
-datos_exp$log_y <- log(datos_exp$y)
-modelo_log_y <- lm(log_y ~ x, data = datos_exp)
-
-# Transformación logarítmica de ambas variables
-datos_exp$log_x <- log(datos_exp$x)
-modelo_log_log <- lm(log_y ~ log_x, data = datos_exp)
-
-# Comparar modelos
-cat("Modelo original - R²:", round(summary(modelo_original)$r.squared, 4), "\n")
-cat("Modelo log-lineal - R²:", round(summary(modelo_log_y)$r.squared, 4), "\n")
-cat("Modelo log-log - R²:", round(summary(modelo_log_log)$r.squared, 4), "\n\n")
-
-# Diagnósticos de heterocedasticidad (Breusch-Pagan)
-print(bptest(modelo_original))
-print(bptest(modelo_log_y))
-
-# Visualización de transformaciones
-p1 <- ggplot(datos_exp, aes(x = x, y = y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Modelo Original", x = "X", y = "Y") +
-  theme_minimal()
-
-p2 <- ggplot(datos_exp, aes(x = x, y = log_y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Transformación Log(Y)", x = "X", y = "Log(Y)") +
-  theme_minimal()
-
-p3 <- ggplot(datos_exp, aes(x = log_x, y = log_y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Transformación Log-Log", x = "Log(X)", y = "Log(Y)") +
-  theme_minimal()
-
-grid.arrange(p1, p2, p3, ncol = 3)
-```
-
-#### Interpretación de coeficientes transformados
-
-```{r intrepretacion transformacion log}
-# Extraer coeficientes para interpretación
-coef_log_y <- coef(modelo_log_y)
-coef_log_log <- coef(modelo_log_log)
-
-cat("MODELO LOG-LINEAL: log(Y) = β₀ + β₁X\n")
-cat("Intercepto:", round(coef_log_y[1], 4), "\n")
-cat("Pendiente:", round(coef_log_y[2], 4), "\n")
-cat("Interpretación: Un aumento de 1 unidad en X se asocia con un cambio de", 
-    round(coef_log_y[2]*100, 2), "% en Y\n\n")
-
-cat("MODELO LOG-LOG: log(Y) = β₀ + β₁log(X)\n")
-cat("Intercepto:", round(coef_log_log[1], 4), "\n")
-cat("Pendiente (elasticidad):", round(coef_log_log[2], 4), "\n")
-cat("Interpretación: Un aumento de 1% en X se asocia con un cambio de", 
-    round(coef_log_log[2], 2), "% en Y\n\n")
-
-```
-
-### Transformación de raíz cuadrada
-
-```{r transformacion raiz cuadrada}
-# Preparamos los datos
-datos_count <- data.frame(
-  x = df_mat$absences, 
-  y = df_mat$G3
-) ### df_mat --- train
-
-# Verificar relación varianza-media
-grupos <- cut(datos_count$x, breaks = 4)
-media_por_grupo <- tapply(datos_count$y, grupos, mean)
-var_por_grupo <- tapply(datos_count$y, grupos, var)
-
-tabla_var_media <- data.frame(
-  Grupo = names(media_por_grupo),
-  Media = round(media_por_grupo, 2),
-  Varianza = round(var_por_grupo, 2),
-  Ratio_Var_Media = round(var_por_grupo / media_por_grupo, 2)
-)
-kable(tabla_var_media, caption = "Relación Varianza-Media por grupos")
-
-# Modelo original
-modelo_count_orig <- lm(y ~ x, data = datos_count)
-
-# Transformación raíz cuadrada
-datos_count$sqrt_y <- sqrt(datos_count$y)
-modelo_sqrt <- lm(sqrt_y ~ x, data = datos_count)
-
-# Comparar heterocedasticidad
-print(bptest(modelo_count_orig))
-print(bptest(modelo_sqrt))
-
-# Visualización
-p1 <- ggplot(datos_count, aes(x = x, y = y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Datos Originales", x = "X", y = "Y (conteos)") +
-  theme_minimal()
-
-p2 <- ggplot(datos_count, aes(x = x, y = sqrt_y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Transformación √Y", x = "X", y = "√Y") +
-  theme_minimal()
-
-# Gráficos de residuos
-residuos_orig <- residuals(modelo_count_orig)
-residuos_sqrt <- residuals(modelo_sqrt)
-ajustados_orig <- fitted(modelo_count_orig)
-ajustados_sqrt <- fitted(modelo_sqrt)
-
-p3 <- ggplot(data.frame(x = ajustados_orig, y = residuos_orig), aes(x = x, y = y)) +
-  geom_point(alpha = 0.6) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  geom_smooth(se = FALSE, color = "blue") +
-  labs(title = "Residuos - Original", x = "Ajustados", y = "Residuos") +
-  theme_minimal()
-
-p4 <- ggplot(data.frame(x = ajustados_sqrt, y = residuos_sqrt), aes(x = x, y = y)) +
-  geom_point(alpha = 0.6) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  geom_smooth(se = FALSE, color = "blue") +
-  labs(title = "Residuos - √Y", x = "Ajustados", y = "Residuos") +
-  theme_minimal()
-
-grid.arrange(p1, p2, p3, p4, ncol = 2)
-```
-
-### Transformación Box-Cox
+Si $\lambda = 1$, no hay transformación.
+Si $\lambda = 0.5$, transformación de raíz cuadrada.
+Si $\lambda = 0$, transformación logarítmica.
+Si $\lambda = -1$, transformación inversa.
 
 ```{r  transformación Box-Cox}
 # Preparamos los datos
@@ -664,51 +496,4 @@ shapiro.test(residuals(modelo_bc_orig))
 shapiro.test(residuals(modelo_bc_trans))
 ```
 
-#### Análisis post-transformación
-
-```{r post-transformacion box-cox}
-# Distribución después de transformación
-p3 <- ggplot(datos_bc, aes(x = y_bc)) +
-  geom_histogram(bins = 20, alpha = 0.7, fill = "lightgreen", color = "black") +
-  labs(title = "Distribución Después de Box-Cox", x = "Y Transformada", y = "Frecuencia") +
-  theme_minimal()
-
-p4 <- ggplot(datos_bc, aes(sample = y_bc)) +
-  stat_qq() +
-  stat_qq_line(color = "red") +
-  labs(title = "Q-Q Plot Después de Box-Cox", x = "Cuantiles Teóricos", y = "Cuantiles Muestra") +
-  theme_minimal()
-
-grid.arrange(p3, p4, ncol = 2)
-
-# Gráficos de regresión
-p5 <- ggplot(datos_bc, aes(x = x, y = y)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Regresión Original", x = "X", y = "Y") +
-  theme_minimal()
-
-p6 <- ggplot(datos_bc, aes(x = x, y = y_bc)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "red") +
-  labs(title = "Regresión con Box-Cox", x = "X", y = "Y Transformada") +
-  theme_minimal()
-
-grid.arrange(p5, p6, ncol = 2)
-
-# Interpretación y predicción con retransformación
-coef_bc <- coef(modelo_bc_trans)
-x_pred <- 5
-y_trans_pred <- predict(modelo_bc_trans, newdata = data.frame(x = x_pred))
-
-# Retransformación (aproximación)
-if(abs(lambda_optimo) < 0.01) {
-  y_orig_pred <- exp(y_trans_pred)
-} else {
-  y_orig_pred <- (lambda_optimo * y_trans_pred + 1)^(1/lambda_optimo)
-}
-cat("Para X =", x_pred, ":\n")
-cat("Y transformada predicha:", round(y_trans_pred, 4), "\n")
-cat("Y original predicha (retransformada):", round(y_orig_pred, 2), "\n")
-```
-
+Como nos ha salido que $\lambda = 1.2727$, al estar el valor cerca del uno, quiere decir que no se tiene que llevar a cabo ninguna transformación.
