@@ -75,7 +75,7 @@ kable(resumen_particion, caption = "Distribución del tamaño de la muestra")
 
 # Modelo de regresión lineal múltiple
 
-```{r librerias}
+```{r librerias, message=FALSE}
 # Cargar librerías
 
 library(tidyverse)
@@ -100,10 +100,6 @@ Vamos a seleccionar el mejor subconjunto de variables.
 
 ### Selección de variables
 
-#### Métodos de selección exhaustiva
-
-Primero vamos a hacerlo a partir de métodos de selección exhaustiva, a partir de "Best Subset Selection".
-
 ```{r}
 train_limpio <- train_set %>% 
   dplyr::select(-ends_with(".y"))
@@ -112,33 +108,48 @@ test_limpio <- test_set %>%
   dplyr::select(-ends_with(".y"))
 ```
 
+#### Métodos de selección exhaustiva
+
 ##### Best Subset Selection
 
 Hemos descartado realizar la "Best Subset Selection" debido a su complejidad computacional. Este método lo que hace es evaluar todas las combinaciones posibles de predictores, creciendo exponencialmente ($2^p$ modelos posibles), y como nuestro modelo tiene 33 variables en total falla debido al tamaño, ya que habría $2^{33}$ modelos posibles.
 
 #### Métodos automáticos
 
-Ahora vamos a hacerlo con métodos automáticos paso a paso.
-
 ```{r modelos seleccion}
 # Modelo inicial
+  # ~ 1 crea un modelo sin usar ninguna variable predictora
+  # Es el punto de partida. Se empieza con este modelo y se van añadiendo variables una a una para ver cual mejora más la predicción
 modelo_inicial <- lm(G3.x ~ 1, data = train_limpio)
 
 # Modelo completo
-modelo_completo_step <- lm(G3.x ~ ., data = train_limpio)
+  # ~ . crea un modelo usando todas las variables del dataset
+  # Para ir añadiendo las variables al modelo
+modelo_completo <- lm(G3.x ~ ., data = train_limpio)
 ```
 
 ##### Forward Selection
 
+Este método parte de un modelo vacío y prueba todas las variables predictoras del dataset una a una. En cada paso evalúa y guarda la variable que más mejore el modelo, hasta que guardar una variable no suponga ninguna mejora. Este modelo no puede eliminar variables una vez incluidad.
+
 ```{r forward selection}
-# Forward selection usando AIC
+# Forward selection usando AIC (cuanto menor AIC, mejor modelo)
+  # Al poner "modelo_inicial" al principio, le decimos a la función por donde empezar, es decir, con el modelo que no tiene variables predictoras, solo el intertcepto
+  # lower = modelo_inicial significa que como mínimo puede no tener las variables predictoras 
+  # upper = modelo_completo significa que como máximo puede meter en el modelo todas las variables del dataset
+  # direction = "forward" indica el método que estamos utilizando
+  # trace = FALSE para que no imprima todos los resultados, solo el resultado final
 forward_aic <- step(modelo_inicial, 
-                    scope = list(lower = modelo_inicial, upper = modelo_completo_step),
+                    scope = list(lower = modelo_inicial, upper = modelo_completo),
                     direction = "forward", 
                     trace = FALSE)
 
 cat("Variables seleccionadas:\n")
-forward_vars <- names(coef(forward_aic))[-1]  # Excluir intercepto
+
+# coef(forward_aic) saca las variables seleccionadas
+# [-1] para excluir el intercepto, que siempre va a ser la primera variable que saque
+forward_vars <- names(coef(forward_aic))[-1]
+
 cat(paste(forward_vars, collapse = ", "), "\n")
 cat("AIC final:", AIC(forward_aic), "\n")
 cat("Número de variables:", length(forward_vars), "\n\n")
@@ -147,16 +158,33 @@ cat("Número de variables:", length(forward_vars), "\n\n")
 summary(forward_aic)
 ```
 
+El algoritmo de Forward Selection acabó con un AIC de 926.9509, seleccionando un subconjunto de 10 variables predictoras originales, aunque el resultado nos da que son 20 debido a la separación que hemos hecho, ya que ha creado k-1 variables por cada nivel (por ejemplo la variable "health" de 5 niveles se ha dividido en 4 variables: health.x2, health.x3, health.x4 y health.x5).
+
+En el modelo se puede ver que $R^2 = 0.8686$ y que el ajustado es $R^2_{adj} = 0.8558$, es decir, casi no hay diferencia entre uno y otro, y este resultado significa que nuestro modelo explica un 85.58% de la variabilidad total a partir únicamente de las 10 variables seleccionadas.
+
+Los asteriscos muestran, a partir del p-valor, la importancia de una variable para nuestro modelo. Cuantos más asteriscos tenga, más importante es. Y si no tiene ningún asterisco significa que no es una variable relevante, que no nos da suficiente información. En nuestro resumen se puede ver que las variables más relevantes, con 3 asteriscos, son "G2.x", "Fedu2", "Fedu4" y "absences.x", aunque la mejor es "G2.x" con $p-valor < 2e-16$.
+
+El modelo también muestra que tenemos un error estándar de 1.776. El estadístico F nos da 68.07, lo que significa que, al ser un resultado tan grande, nuestro modelo es útil. Y, por último, el p-valor final (< 2e-16) nos asegura que nuestro modelo es estadísticamente válido para la predicción.
+
 ##### Backward Elimination
 
+Este método es inverso al Forward Selection. Lo que hace es partir del modelo completo, que contiene todas las variables predictoras del dataset, y en cada paso evalúa qué variable aporta menos información a nuestro modelo y la elimina. Así hasta que eliminar una variable suponga empeorar el modelo. En este caso, el modelo solo funciona si hay más variables que datos (en nuestro caso más alumnos que variables, y como tenemos 227 alumnos y 67 variables podemos usar este método).
+
 ```{r backward elimination}
-# Backward elimination usando AIC
-backward_aic <- step(modelo_completo_step, 
+# Backward elimination usando AIC (cuanto menor AIC, mejor modelo)
+  # Al poner "modelo_completo" al principio, le decimos a la función por donde empezar, es decir, con el modelo que tiene todas las variables predictoras de nuestro dataset
+  # direction = "backward" indica el método que estamos usando
+  # trace = FALSE para que no imprima todos los resultados, solo el resultado final
+backward_aic <- step(modelo_completo, 
                      direction = "backward", 
                      trace = FALSE)
 
 cat("Variables seleccionadas:\n")
-backward_vars <- names(coef(backward_aic))[-1]  # Excluir intercepto
+
+# coef(backward_aic) saca las variables seleccionadas
+# [-1] para excluir el intercepto, que siempre va a ser la primera variable que saque
+backward_vars <- names(coef(backward_aic))[-1]
+
 cat(paste(backward_vars, collapse = ", "), "\n")
 cat("AIC final:", AIC(backward_aic), "\n")
 cat("Número de variables:", length(backward_vars), "\n\n")
@@ -164,22 +192,45 @@ cat("Número de variables:", length(backward_vars), "\n\n")
 # Resumen del modelo final
 summary(backward_aic)
 ```
+En este caso se puede observar que los resultados son muy parecidos a los que nos han salido con el método anterior. Aunque aquí se ha quedado con 13 variables originales (expandidas en 25 en total), mientras que Forward cogió únicamente 10. Se puede ver que este método no ha escogido las mismas variables que el anterior, ya que ha considerado otras más relevantes para poder bajar el AIC, que finalmente nos ha dado 926.0646 (muy similar al anterior, que era 926.9509).
+
+En este caso, el R-cuadrado ajustado nos ha salido $R^2_{adj} = 0.8592$, es decir, con este método se explica un 85.92% de la variabilidad total a partir de las 13 variables seleccionadas (también muy parecido al resultado de Forward, 0.8558).
+
+En el caso de las variables seleccionadas como más relevantes, al igual que el método de Forward Selection, ha escogido "Fedu2", "Fedu4", "absences.x" y "G2.x". Y, al igual que antes, la que tiene mejor p-valor es "G2.x" con $p-valor < 2e-16$.
+
+El error estándar aquí es un poco más bajo (1.755), y el estadístico F también (56.14). En el caso del error estándar, cuanto más bajo sea mejor es el modelo; sin embargo, con el estadístico F pasa lo contrario, ya que cuanto más alto sea más útil es el modelo, pero en este caso casi no hay diferencia y 56.14 sigue siendo un valor elevado, lo que significa que el modelo también es útil. Y, por último, el p-valor final sigue siendo el mismo (< 2e-16).
 
 ##### Stepwise Selection
 
+En este caso, este método parte de un modelo vacío y en cada paso evalúa si añadir una nueva variable que mejore el modelo, como en el de Forward Selection. Pero este método lo que hace es que tras cada incorporación de una variable nueva, comprueba si alguna de las variables que ya se habían añadido al modelo ha dejado de ser relevante y se puede eliminar. La limitación de este método es que solo encuentra un único óptimo local, es decir, encuentra el mejor modelo siguiendo un camino específico, pero no garantiza encontrar el mejor modelo de entre todas las combinaciones posibles, ya que no evalúa el espacio completo de modelos.
+
 ```{r stepwise selection}
-# Stepwise selection usando AIC
+# Stepwise selection usando AIC (cuanto menor AIC, mejor modelo)
+  # Al poner "modelo_inicial" al principio, le decimos a la función por donde empezar, es decir, con el modelo que no tiene variables predictoras, solo el intertcepto
+  # lower = modelo_inicial significa que como mínimo puede no tener las variables predictoras 
+  # upper = modelo_completo significa que como máximo puede meter en el modelo todas las variables del dataset
+  # direction = "both" indica el método que estamos utilizando, en este caso es una mezcla del Forward y el Backward
+  # trace = FALSE para que no imprima todos los resultados, solo el resultado final
 stepwise_aic <- step(modelo_inicial, 
-                     scope = list(lower = modelo_inicial, upper = modelo_completo_step),
+                     scope = list(lower = modelo_inicial, upper = modelo_completo),
                      direction = "both", 
                      trace = FALSE)
 
 cat("Variables seleccionadas:\n")
-stepwise_vars <- names(coef(stepwise_aic))[-1]  # Excluir intercepto
+
+# coef(stepwise_aic) saca las variables seleccionadas
+# [-1] para excluir el intercepto, que siempre va a ser la primera variable que saque
+stepwise_vars <- names(coef(stepwise_aic))[-1]  
+
 cat(paste(stepwise_vars, collapse = ", "), "\n")
 cat("AIC final:", AIC(stepwise_aic), "\n")
 cat("Número de variables:", length(stepwise_vars), "\n\n")
+
+# Resumen del modelo final
+summary(stepwise_aic)
 ```
+Como se muestra, el método Stepwise nos ha devuelto los mismos resultados que el método Forward. Ha seleccionado las mismas 10 variables originales, el AIC también es igual (926.9509), 
+$R^2_{adj} = 0.8558$, ha seleccionado las mismas variables como relevantes (con 3 asteriscos), y el error estándar (1.776), el estadístico F (68.07) y el p-valor final (< 2.2e-16) también son los mismos.
 
 #### Comparación de los métodos automáticos
 
@@ -197,34 +248,40 @@ metodos_automaticos <- data.frame(
 print(metodos_automaticos)
 ```
 
-Como se puede observar en la tabla, los tres métodos muestran los mismos resultados. Dado que el R2 ajustado es 0.834427, significa que con nuestro modelo queda explicada el 83.44% de la variabilidad total.
+Como hemos visto anteriormente, los tres métodos muestran resultados muy similares aunque, en el caso de los métodos Forward y Stepwise, para ambos nos han salido los mismo resultados, mientras que para el método Backward hay pequeños cambios. Como el método Backward utiliza más variables que los otros dos para una mejora tan pequeña tanto en el error con el el AIC y en el R-cuadrado ajustado, nos quedamos con el modelo de Forward y Stepwise por ser más simple.
 
 #### Comparación de las variables seleccionadas
 
 ```{r comparacion seleccion}
 # Crear matriz de comparación de variables seleccionadas
-todas_vars <- names(df_mat)[-which(names(df_mat) == "G3")] ### df_mat --- train
+todas_vars <- names(train_limpio)[-which(names(train_limpio) == "G3.x")]
 
+comprobar_variables <- function(variable, seleccionadas) {
+  # Coprobar si alguna de las variables seleccionadas empieza con el nombre de mi variable
+  # Lo hacemos así por la división en niveles
+  any(startsWith(x = seleccionadas, prefix = variable))
+}
+
+# sapply() mira en una lista de elementos uno a uno y devuelve los resultado en un vector
 comparacion_seleccion <- data.frame(
-  Variable = todas_vars,
-  Forward = todas_vars %in% forward_vars,
-  Backward = todas_vars %in% backward_vars,
-  Stepwise = todas_vars %in% stepwise_vars,
-  Best_Subset_BIC = todas_vars %in% vars_mejor_bic,
-  Best_Subset_Cp = todas_vars %in% vars_mejor_cp
+  Forward = sapply(todas_vars, comprobar_variables, seleccionadas = forward_vars),
+  Backward = sapply(todas_vars, comprobar_variables, seleccionadas = backward_vars),
+  Stepwise = sapply(todas_vars, comprobar_variables, seleccionadas = stepwise_vars)
 )
 
 print(comparacion_seleccion)
 ```
 
-En este caso se observa que todos los métodos descartaron todas las variables excepto la variable edad.
+Esta tabla muestra la selección de variables de cada método. Variables como "age" o "Fedu"  son seleccionadas por los tres métodos, mientras que hay otras como "school" o "sex" que solo han sido seleccionadas por el método Backward.
 
 ### Regularización
 
 ```{r regularizacion}
 # Creamos las matrices
   # Usamos model.matrix para convertir las variables categóricas a 0 y 1
+  # glmnet solo admite numéros, así que creamos matrices numéricas
   # Hay que poner [, -1] para eliminar la columna de unos del intercepto que se crea
+
 X_train <- model.matrix(G3.x ~ ., data = train_limpio)[, -1] # Variables predictoras
 y_train <- train_limpio$G3.x # Variables respuesta
 
@@ -238,22 +295,30 @@ cat("Variables predictoras:", ncol(X_train), "\n")
 
 ```{r lambda grid}
 # Grid de valores lambda
+  # 100 números que van desde 10 hasta -2
+  # Eleva 10 a cada uno de esos números
 lambda_grid <- 10^seq(10, -2, length = 100)
 ```
 
 #### Modelo Ridge
 
+En este modelo, cuanto más aumenta el valor de lambda, más se reduce la magnitud de los coeficientes acercándose cada vez más a 0, pero el valor nunca va a ser un 0 absoluto.
+
 ```{r ridge}
 # Modelo Ridge (alpha = 0)
-  # Para Ridge se usa alpha=0
+  # Para Ridge se usa alpha = 0 (alpha = 1 es para lasso)
 
 # Ajustar Ridge regression
 ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = lambda_grid) 
 
 # Validación cruzada para seleccionar lambda óptimo
+  # cv.glmnet divide los datos de entrenamiento en 10 trozos (nfolds = 10)
+  # Entrena con 9 y prueba con 1, repitiendo el proceso para encontrar qué lambda funciona mejor
 ridge_cv <- cv.glmnet(X_train, y_train, alpha = 0, lambda = lambda_grid, nfolds = 10) 
 
 # Lambda óptimo
+  # lambda.min es el valor exacto que consigue el menor error posible en la validación cruzada
+  # lambda.1se es un lambda un poco más fuerte pero cuyo error no se aleja más de 1 Desviación Estándar del error mínimo
 lambda_ridge_min <- ridge_cv$lambda.min
 lambda_ridge_1se <- ridge_cv$lambda.1se
 
@@ -261,25 +326,44 @@ cat("Lambda mínimo:", lambda_ridge_min, "\n")
 cat("Lambda 1SE:", lambda_ridge_1se, "\n")
 
 # Predicciones en conjunto de prueba
+  # Ponemos a prueba los dos lambdas usando datos nuevos
 ridge_pred_min <- predict(ridge_model, s = lambda_ridge_min, newx = X_test)
 ridge_pred_1se <- predict(ridge_model, s = lambda_ridge_1se, newx = X_test)
 
 # Métricas de rendimiento
+  # RMSE (Raíz del Error Cuadrático Medio) nos dice por cuanto se equivoca el modelo de media
 ridge_rmse_min <- sqrt(mean((ridge_pred_min - y_test)^2))
 ridge_rmse_1se <- sqrt(mean((ridge_pred_1se - y_test)^2))
-
+ 
 cat("RMSE (lambda min):", round(ridge_rmse_min, 3), "\n")
 cat("RMSE (lambda 1SE):", round(ridge_rmse_1se, 3), "\n")
 
 # Coeficientes finales
+  # Extraemos el peso que el modelo le ha dado a cada variable con el mejor lambda
 ridge_coefs <- predict(ridge_model, type = "coefficients", s = lambda_ridge_min)[, 1]
 print(round(ridge_coefs, 4))
+```
 
+Tras haber probado los 100 valores, concluyó que el mejor lambda para minimizar el error (lambda.min) es 0.2154435. Y Lambda 1SE = 1.149757, que en este caso, este lambda lo que hace es evitar el sobreajuste, aunque no minimiza el error como el otro. Pero, como se puede ver, el error apenas cambia entre un lambda y otro (aumentando solo de 2.654 a 2.698).
+
+Y, si miramos los coeficientes, podemos ver que para este modelo nunca son cero, es decir, el modelo Ridge no elimina variables.
+
+```{r}
 # Gráfico de validación cruzada
 plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
 ```
 
+En este gráfico en el eje Y se encuentra el error del modelo (cuanto más bajo mejor), y en el eje X "$-log(\lambda)$", que es el lambda pero en escala logarítmica. 
+
+Cada uno de los puntos rojos es uno de los 100 valores que se le ha dado a lambda y las líneas grises que hay alrededor de estos puntos indican el margen de error, es decir, la desviación estándar.
+
+A la derecha se pueden ver dos líneas discontinuas verticales que indican los mejores lambdas, la de la izquierda es "lambda.min" y la de la derecha "lambda.1se".
+
+Y encima aparece el número 67 de forma constante, que indica el número de variables predictoras que usa el modelo en cada momento, que en este caso siempre son 67, lo que confirma que el modelo Ridge no elimina ninguna variable.
+
 #### Modelo Lasso
+
+En este caso, cuanto más aumenta el valor de lambda, mayor es el número de coeficientes que tienen valor 0, lo que hace que esas variables sean eliminadas.
 
 ```{r lasso}
 # Modelo Lasso (alpha = 1)
@@ -289,9 +373,13 @@ plot(ridge_cv, main = "Validación Cruzada - Ridge Regression")
 lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = lambda_grid) 
 
 # Validación cruzada para seleccionar lambda óptimo
+  # cv.glmnet divide los datos de entrenamiento en 10 trozos (nfolds = 10)
+  # Entrena con 9 y prueba con 1, repitiendo el proceso para encontrar qué lambda funciona mejor
 lasso_cv <- cv.glmnet(X_train, y_train, alpha = 1, lambda = lambda_grid, nfolds = 10) 
 
 # Lambda óptimo
+  # lambda.min es el valor exacto que consigue el menor error posible en la validación cruzada
+  # lambda.1se es un lambda un poco más fuerte pero cuyo error no se aleja más de 1 Desviación Estándar del error mínimo
 lambda_lasso_min <- lasso_cv$lambda.min
 lambda_lasso_1se <- lasso_cv$lambda.1se
 
@@ -299,10 +387,12 @@ cat("Lambda mínimo:", lambda_lasso_min, "\n")
 cat("Lambda 1SE:", lambda_lasso_1se, "\n")
 
 # Predicciones en conjunto de prueba
+  # Ponemos a prueba los dos lambdas usando datos nuevos
 lasso_pred_min <- predict(lasso_model, s = lambda_lasso_min, newx = X_test)
 lasso_pred_1se <- predict(lasso_model, s = lambda_lasso_1se, newx = X_test)
 
 # Métricas de rendimiento
+  # RMSE (Raíz del Error Cuadrático Medio) nos dice por cuanto se equivoca el modelo de media
 lasso_rmse_min <- sqrt(mean((lasso_pred_min - y_test)^2))
 lasso_rmse_1se <- sqrt(mean((lasso_pred_1se - y_test)^2))
 
@@ -310,25 +400,46 @@ cat("RMSE (lambda min):", round(lasso_rmse_min, 3), "\n")
 cat("RMSE (lambda 1SE):", round(lasso_rmse_1se, 3), "\n")
 
 # Coeficientes finales (Lasso puede hacer coeficientes = 0)
+  # Extrae los coeficientes del mejor modelo
 lasso_coefs <- predict(lasso_model, type = "coefficients", s = lambda_lasso_min)[, 1]
 print(round(lasso_coefs, 4))
 
 # Variables seleccionadas por Lasso
+  # Como los coeficientes pueden ser 0, nos quedamos únicamente con los que no lo sean (!= 0)
 vars_lasso <- names(lasso_coefs[lasso_coefs != 0])[-1]  # Excluir intercepto
+
 cat("\nVariables seleccionadas por Lasso:", paste(vars_lasso, collapse = ", "), "\n")
 cat("Número de variables seleccionadas:", length(vars_lasso), "\n")
+```
+En el modelo Lasso el mejor lambda para minimizar el error (lambda.min) nos ha salido que es 0.2154435, y Lambda 1SE = 0.869749, que es el lambda que evita el sobreajuste. El error ha mejorado, que ahora es 2.459, en comparación con el del modelo Ridge, que era 2.654, es decir, el modelo Lasso se equivoca menos al predecir con los nuevos datos.
 
+Además, en este caso se pueden ver muchos coeficientes que son cero, y lo que hace este modelo es eliminarlos y quedarse con los que son distintos de cero, quedándose únicamente con 10 variables predictoras ("Fedu2", "guardian.xmother", "studytime.x2", "failures.x", "famrel.x5", "Dalc.x2", "health.x2", "absences.x", "G1.x" y "G2.x").
+
+```{r}
 # Gráfico de validación cruzada
 plot(lasso_cv, main = "Validación Cruzada - Lasso Regression")
 ```
 
+Al igual que en el gráfico anterior, en el eje Y se encuentra el error del modelo (cuanto más bajo mejor), y en el eje X "$-log(\lambda)$", que es el lambda pero en escala logarítmica. 
+
+Cada uno de los puntos rojos es uno de los 100 valores que se le ha dado a lambda y las líneas grises que hay alrededor de estos puntos indican el margen de error, es decir, la desviación estándar.
+
+A la derecha se pueden ver dos líneas discontinuas verticales que indican los mejores lambdas, la de la izquierda es "lambda.min" y la de la derecha "lambda.1se".
+
+Y encima aparece una serie de número que indica el número de variables predictoras que usa el modelo en cada momento. Al principio, cuando lambda es un valor grande, el modelo tiene cero variables, pero a medida que lambda disminuye, las variables predictoras aumentan.
+
+Al principio, cuando el valor de lambda es más grande y no se usa ninguna variable predictora, el error se mantiene constante y elevado, hasta que llega un punto, cuando se reduce el lambda y se utilizan unas pocas variables predictoras, en el que la curva roja desciende y se mantiene muy baja. Por lo que se puede ver que no se necesitan las 67 variables predictoras para predecir bien y que el error sea bajo.
+
 #### Elastic Net
+
+Este modelo calcula el parámetro alpha, cuanto más se acerque a 1 significa que se comporta como Lasso, y cuanto más se acerque a 0, su comportamiento de acerca más al del modelo Ridge.
 
 ```{r elastic net}
 # Grid de valores alpha para Elastic Net
 alpha_grid <- seq(0, 1, length = 11)
 
 # Función para encontrar el mejor alpha
+  # A partir de un valor de alpha entrena el modelo, hace validación cruzada y devuelve el error mínimo que ha conseguido
 best_alpha_search <- function(alpha_val) {
   cv_result <- cv.glmnet(X_train, y_train, alpha = alpha_val, lambda = lambda_grid, nfolds = 10)
   return(data.frame(alpha = alpha_val, 
@@ -337,20 +448,28 @@ best_alpha_search <- function(alpha_val) {
 }
 
 # Buscar mejor alpha
+  # map_dfr() le pasa todos los valores de alpha a la función y guarda todos los resultados en una tabla
 alpha_results <- map_dfr(alpha_grid, best_alpha_search)
+
+  # Buscamos en la tabla la fila con el error más bajo (cvm_min)
 best_alpha <- alpha_results$alpha[which.min(alpha_results$cvm_min)]
 
 cat("Mejor alpha:", best_alpha, "\n")
 
 # Ajustar Elastic Net con mejor alpha
+  # A partir del aplpha que nos haya salido entrenamos el modelo final
 elastic_model <- glmnet(X_train, y_train, alpha = best_alpha, lambda = lambda_grid) 
 elastic_cv <- cv.glmnet(X_train, y_train, alpha = best_alpha, lambda = lambda_grid, nfolds = 10)
 
+  # lambda.min es el valor exacto que consigue el menor error posible en la validación cruzada
 lambda_elastic_min <- elastic_cv$lambda.min
 cat("Lambda óptimo:", lambda_elastic_min, "\n")
 
 # Predicciones en conjunto de prueba
+  # Ponemos a prueba nuestro modelo usando datos nuevos
 elastic_pred <- predict(elastic_model, s = lambda_elastic_min, newx = X_test)
+
+  # RMSE (Raíz del Error Cuadrático Medio) nos dice por cuanto se equivoca el modelo de media
 elastic_rmse <- sqrt(mean((elastic_pred - y_test)^2))
 
 cat("RMSE:", round(elastic_rmse, 3), "\n")
@@ -360,10 +479,19 @@ elastic_coefs <- predict(elastic_model, type = "coefficients", s = lambda_elasti
 print(round(elastic_coefs, 4))
 
 # Variables seleccionadas por Elastic Net
+  # > 1e-6 para que solo muestre las variables cuyo valor absoluto sea mayor a un número muy pequeño
 vars_elastic <- names(elastic_coefs[abs(elastic_coefs) > 1e-6])[-1]  # Excluir intercepto
+
 cat("\nVariables seleccionadas por Elastic Net:", paste(vars_elastic, collapse = ", "), "\n")
 cat("Número de variables seleccionadas:", length(vars_elastic), "\n")
 ```
+En este modelo el parámetro que obtenemos, además del lambda óptimo (0.07054802), es el alpha, que controla el peso de cada método. Como hemos obtenido $\alpha = 0.9$, significa que nuestro modelo es un 90% Lasso y un 10% Ridge.
+
+Al ser en su mayoría Lasso, el modelo tiene coeficientes que son cero, por lo que elimina esas variables y se queda con las que tienen un coeficiente distinto a cero.
+
+El error de este modelo nos ha dado 2.466, que se acerca más al del modelo Lasso (2.459) que al del modelo Ridge (2.654).
+
+Finalmente este modelo, de las 67 variables predictoras totales, se ha quedado con 42.
 
 #### Comparación de los métodos de regularización
 
@@ -380,7 +508,13 @@ comparacion_reg <- data.frame(
 ) # [-1, 1] para quitar el intercepto (-1)
 
 print(comparacion_reg)
+```
 
+Tras comparar los tres métodos de regularización, el modelo Ridge mantiene todas las variables predictoras (67) y es el de error más alto (2.6537). Por otro lado, Elastic Net reduce el error hasta un 2.46, pero mantiene 42 variables. 
+
+Sin embargo, el modelo que más destaca es el Lasso (min), ya que no solo es el que tiene menor error (2.459187), sino que también mantiene únicamente 10 variables predictoras. En el caso de Lasso (1SE), aunque solo usa 1 variable predictora, el error sube a 2.655306 a pesar de utilizar una única variable. Es decir, Lasso (min) además de tener el menor error es un modelo simple, y por lo tanto la mejor opción.
+
+```{r}
 # Gráfico de comparación
 ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   geom_point(size = 4) +
@@ -391,28 +525,46 @@ ggplot(comparacion_reg, aes(x = N_Variables, y = RMSE, color = Metodo)) +
   theme_minimal() +
   theme(legend.position = "none")
 ```
+En esta gráfica, en el eje Y se encuentra el error y en el eje X el número de variables. Cuanto más cerca de la esquina inferior izquierda mejor es el modelo, ya que es donde hay tanto menor error como menor número de variables. Y como se puede observar, el modelo más cercano a esa esquina es Lasso (min).
 
-Tras comparar los tres métodos de regularización, el modelo Ridge es el que menor error cuadrático ha obtenido (con un 2.47). Sin embargo, este modelo utiliza 41 variables, mientras que el modelo Lasso (que tiene un error igual a 2.5), únicamente mantiene 3 variables. Por lo que el mejor modelo es el modelo Lasso, debido a su simplicidad.
+## Selección del mejor modelo de regresión lineal múltiple
+
+```{r}
+# Predicciones del modelo Stepwise sobre el conjunto de TEST
+pred_stepwise <- predict(stepwise_aic, newdata = test_limpio)
+
+# Calcular el RMSE real de Stepwise
+rmse_stepwise_test <- sqrt(mean((pred_stepwise - test_limpio$G3.x)^2))
+
+cat("RMSE Test Stepwise:", rmse_stepwise_test, "\n")
+cat("RMSE Test Lasso:", lasso_rmse_min, "\n")
+```
+
+En la selección de variables nos quedamos con el método Stepwise y en la regularización con el modelo Lasso, pero si comparas ambos modelos, aunque los dos han seleccionado el mismo número de variables (10), el modelo Lasso tiene menor error cuadrático medio (RMSE), por lo que es el modelo ganador.
 
 ## Modelos no lineales y transformación de variables
 
 ### Modelos no lineales
 
-En el método de Stepwise se queda con 9 variables, que son "G2", "famrel", "absences", "G1", "age", "activities", "Walc", "romantic" y "school", donde las variables numéricas son "G2", "famrel", "absences", "G1", "age" y "Walc". Por lo que en primer lugar vamos a visualizar la relación de todas estas variables frente a G3.
+Al comparar los modelos, hemos comprobado que el mejor es el modelo Lasso, que se queda con 10 variables, que son "Fedu", "guardian", "studytime", "failures", "famrel", "Dalc", "health", "absences", "G1" y "G2" , y son las que vamos a estudiar a partir de un diagnóstico con gráficos CPR (Gráficos de Componente más Residuo).
 
 ```{r modelos no lineales, warning=FALSE}
 #| fig-width: 10
 #| fig-height: 8
-modelo_lineal <- lm(G3.x ~ G1.x + G2.x + famrel.x + absences.x + age +  Walc.x, data = train_limpio)
+modelo_lineal <- lm(G3.x ~ Fedu + guardian.x + studytime.x + failures.x + famrel.x + Dalc.x + health.x + absences.x + G1.x + G2.x , data = train_limpio)
 
 car::crPlots(modelo_lineal)
 ```
 
-En cuanto a la no linealidad para estas variables, para "G1", "G2" y "age" se puede ver que la línea rosa está prácticamnenete superpuesto a la línea azul, lo que indica que existe una relación de linealidad.
+En cuanto a la no linealidad para estas variables, en el caso de "G2" la línea rosa está prácticamente superpuesta sobre la azul, lo que significa que la relación es lineal.
 
-En las gráficas de "famrel" y "Walc", en las cajas se puede ver que la línea negra está casi a la misma altura.
+En el caso de "failures", aunque la línea rosa y la azul no están completamente superpuestas, las líneas rosas se mantienen bastante rectas.
 
-Sin embargo, en la gráfica de "absences" hay una acumulación de puntos a la izquierda, donde la línea rosa está superpuesta a la azul, pero hay un punto en el que la azul comienza a ascender mientras que la rosa no.
+En la gráfica de "absences" la línea rosa al principio tiene una curva pero después se mantiene recta. A la izquierda se puede ver una acumulación de puntos, pero hay algunos puntos muy alejados de los demás, lo que significa que hay valores atípicos.
+
+Y, por último, para "G1" la línea rosa tiene una pequeña curva, pero en general es recta, y desde más o menos la mitad de la gráfica hasta el final está superpuesta sobre la azul.
+
+En el caso de los diagramas de cajas, para las 5 variables ("health", "Fedu", "famrel", "studytime" y "famsup") se muestra una separación clara entre grupos. Las medianas muestran variaciones no lineales entre los distintos niveles, ya que por ejemplo para "Fedu", empieza alta en el 1, cae en el 2, pero vuelve a subir en el 3 para volver a bajar en el 4; y en el caso de "famrel", la mediana sube en los extremos pero baja en los niveles intermedios.
 
 ### Transformación de variables
 
@@ -420,12 +572,13 @@ Dado que la única variable que nos puede dar problemas es "absences", vamos a h
 
 #### Transformación Box-Cox
 
-La transformación Box-Cox nos sirve para optimizar el parámetro de transformación $\lambda$. Lo que hace esta transformación es encontrar el valor $\lambda$ que mejor normaliza los datos. Y según el valor que salga significa que se debe hacer una transformaciíon u otra.
+La transformación Box-Cox nos sirve para optimizar el parámetro de transformación $\lambda$. Lo que hace esta transformación es encontrar el valor $\lambda$ que mejor normaliza los datos. Y según el valor que salga significa que se debe hacer una transformación u otra.
 
 Si $\lambda = 1$, no hay transformación. Si $\lambda = 0.5$, transformación de raíz cuadrada. Si $\lambda = 0$, transformación logarítmica. Si $\lambda = -1$, transformación inversa.
 
 ```{r  transformación Box-Cox}
 # Preparamos los datos
+  # Le sumamos 1 a todos los datos para que ninguno sea 0 (no existe el logaritmo de 0)
 datos_bc <- data.frame(
   x = train_limpio$absences.x + 1,
   y = train_limpio$G3.x + 1
@@ -444,12 +597,21 @@ p2 <- ggplot(datos_bc, aes(sample = y)) +
   theme_minimal()
 
 grid.arrange(p1, p2, ncol = 2)
+```
+En el primer gráfico, el eje X es la nota (G3) y el eje Y es la frecuencia, es decir, la cantidad de alumnos que han sacado esa nota. Como se puede ver, a la izquierda hay una barra bastante alta y apartada del resto, que indica que hay un grupo grande de alumnos que ha sacado un cero. Esta barra destruye la normalidad de los datos.
 
+Y, en el otro gráfico, se puede ver una serie de puntos negros, que representan a cada uno de los alumnos, y la línea roja representa cómo deberían colocarse los puntos para que existiera una distribución normal perfecta. En general los puntos siguen la línea roja, pero abajo hay unos cuantos que forman una línea horizontal que se salen bastante de esta línea. Estos puntos representan a los alumnos que tienen un cero, que ya vimos en el gráfico anterior, por lo que ahí no se cumple la normalidad.
+
+```{r}
 # Aplicamos transformación Box-Cox
 modelo_bc_orig <- lm(y ~ x, data = datos_bc)
 
 # Buscamos lambda óptimo
 bc_result <- boxcox(modelo_bc_orig, plotit = TRUE)
+```
+Aquí se puede observar una línea curva que representa como de bien se ajustan los datos a una distribución normal para cada valor de lambda, es decir, cuanto más alta se encuentre la curva, mejor es la normalidad. A la derecha hay 3 líneas discontinuas verticales, la del centro indica el lambda óptimo, que es el del punto más alto de la curva, y la otras dos representan el intervalo de confianza del 95%, lo que significa que estamos seguros al 95% de que el lambda óptimo que mejor normaliza los datos se encuentra entre esos dos extremos.
+
+```{r}
 lambda_optimo <- bc_result$x[which.max(bc_result$y)]
 cat("Lambda óptimo:", round(lambda_optimo, 4), "\n")
 
@@ -484,5 +646,198 @@ cat("R² transformado:", round(summary(modelo_bc_trans)$r.squared, 4), "\n")
 shapiro.test(residuals(modelo_bc_orig))
 shapiro.test(residuals(modelo_bc_trans))
 ```
+Como se puede observar, en el modelo original $R^2 = 0.0007$, pero ahora, tras aplicar la transformación, nos ha salido que $R^2 = 0$, lo que significa que no explica nada de la variabilidad total del modelo, es decir, la variable predictora no explica nada de la nota final.
 
-Como nos ha salido que $\lambda = 1.2323$, al estar el valor cerca del uno, quiere decir que no se tiene que llevar a cabo ninguna transformación.
+En cuanto al p-valor, si es menor que 0.05 significa que no hay normalidad. En el modelo original $p-valor = 1.173e-07$, que es menor que 0.05, pero en el modelo transformado ($p-valor = 1.357e-05$) también lo es, por lo que sigue sin haber normalidad.
+
+Y como nos ha salido que $\lambda = 1.2323$, al ser un valor tan cercano al uno, quiere decir que no se tiene que llevar a cabo ninguna transformación.
+
+## Diagnóstico del modelo
+
+Como hemos observado que el modelo Lasso es la mejor opción, es el que vamos a utilizar para el diagnóstico de nuestro modelo. Por lo que vamos a coger las 10 variables que ha seleccionado.
+
+```{r}
+# Cogemos las 10 variables que ha seleccionado el modelo Lasso
+modelo_final <- lm(G3.x ~ G2.x + G1.x + absences.x + failures.x + Fedu + 
+                     studytime.x + health.x + famrel.x + Dalc.x + guardian.x, 
+                   data = train_limpio)
+
+summary(modelo_final)
+```
+
+### Análisis de multicolinealidad (VIF)
+
+La multicolinealidad consiste en una correlación alta entre variables predictoras, lo que hace que se arruine la interpretación práctica del modelo.
+
+```{r}
+# Calculamos el Factor de Inflación de la Varianza (VIF)
+vif_values <- vif(modelo_final)
+print(vif_values)
+
+cat("\nInterpretación del VIF:\n")
+cat("- VIF < 5: No hay problema de multicolinealidad\n")
+cat("- 5 ≤ VIF < 10: Multicolinealidad moderada\n")
+cat("- VIF ≥ 10: Multicolinealidad severa\n\n")
+
+for(i in 1:length(vif_values)) {
+  var_name <- names(vif_values)[i]
+  vif_val <- vif_values[i]
+  
+  if(vif_val < 5) {
+    status <- "OK"
+  } else if(vif_val < 10) {
+    status <- "Moderada"
+  } else {
+    status <- "Severa"
+  }
+  
+  cat(var_name, ": VIF =", round(vif_val, 2), "(", status, ")\n")
+}
+
+# Modelo con mayor multicolinealidad
+modelo_colineal <- lm(mpg ~ wt + hp + cyl + disp, data = mtcars)
+vif_colineal <- vif(modelo_colineal)
+
+# Modelo con más variables (mayor multicolinealidad)
+print(round(vif_colineal, 2))
+```
+
+En estos resultados se puede ver que aunque "G1" y "G2" tienen los valores más altos, que son casi 5, no llegan a serlo y siguen estando dentro del margen aceptable, por lo que no hay multicolinealidad en nuestro modelo.
+
+### Análisis de los residuos
+
+Este análisis nos va a servir para comprobar si hay algún error en nuestro modelo que no haya sido observado
+
+```{r}
+par(mfrow = c(2, 2))
+plot(modelo_final)
+par(mfrow = c(1, 1))
+```
+
+El gráfico de "Residuals vs Fitted values" sirve para comprobar la linealidad. Se observa una línea diagonal de puntos, que representa que la variable (G3 en este caso) tiene muchos valores en 0.
+
+En el caso de "Q-Q Residuals", para que haya normalidad los puntos tienen que seguir la línea discontinua y, sin embargo, en el extremo izquierdo, los puntos se alejan. Por lo que no siguen una distribución normal.
+
+En el de "Scale-Location", para que haya homocedasticidad la línea tiene que ser completamente recta y la dispersión de los residuos no tendría que cambiar, sin embargo nada de eso ocurre en nuestro gráfico.
+
+Y, por último, "Residuals vs Leverage" evalúa la presencia de puntos influyentes. Se puede ver que la mayoría de las observaciones tienen poco Leverage, y ninguna de ellas supera las líneas de la Distancia de Cook.
+
+#### Verificar supuestos
+
+```{r}
+# Normalidad de residuos (orientativo)
+shapiro <- shapiro.test(resid(modelo_final))
+
+# Homocedasticidad (Breusch–Pagan)
+bp <- lmtest::bptest(modelo_final)
+
+# Independencia / autocorrelación (Durbin–Watson)
+dw <- lmtest::dwtest(modelo_final)
+
+list(
+  shapiro = shapiro,
+  breusch_pagan = bp,
+  durbin_watson = dw
+)
+```
+El único supuesto que cumple es el test de independencia (Durbin-Watson), en el que $p-valor = 0.5016 > 0.05$, mientras que en los otros dos supuestos el p-valor es menor que 0.05.
+
+### Observaciones influyentes (outliers)
+
+```{r}
+n <- nobs(modelo_final)
+p <- length(coef(modelo_final))
+
+lev <- hatvalues(modelo_final)
+cook <- cooks.distance(modelo_final)
+dff <- dffits(modelo_final)
+dfb <- dfbetas(modelo_final)
+
+# Umbrales
+cook_thr <- 4/n
+lev_thr  <- 2*p/n
+dfb_thr  <- 2/sqrt(n)
+
+# Índices sospechosos
+idx_cook <- which(cook > cook_thr)
+idx_lev  <- which(lev  > lev_thr)
+idx_dff  <- which(abs(dff) > 2*sqrt(p/n))
+
+# Resumen
+list(
+  n = n, p = p,
+  cook_threshold = cook_thr,
+  leverage_threshold = lev_thr,
+  dfbetas_threshold = dfb_thr,
+  idx_high_cook = idx_cook,
+  idx_high_leverage = idx_lev,
+  idx_high_dffits = idx_dff
+)
+```
+Aquí, el valor de n es el tamaño muestral y p es el número de parámetros. Al hacer $cook_thr <- 4/n$, que es la distancia de Cook, y en el caso de DFFITS, hemos obtenido 0.01762115, y nos ha dado que hay 17 observaciones que influyen significativamente. $lev_thr  <- 2*p/n$ calcula el Leverage, que es 0.2202643, y utilizando este umbral hemos obtenido 19 observaciones con valores extremos en sus variables predictoras.
+
+```{r}
+# Rankin de las observaciones influyentes
+influence_tbl <- tibble(
+  obs = seq_len(n),
+  leverage = lev,
+  cooks_d = cook,
+  dffits = dff
+) %>%
+  arrange(desc(cooks_d))
+
+influence_tbl %>% slice(1:10)
+```
+Para que una observación sea influyente tiene que superar los umbrales de Cook (0.5 o 1), sin embargo, como se puede observar ninguna de nuestras observaciones los supera, ya que la primera observación que aparece en esta tabla es la 107 con una distancia de Cook de 0.17352744, y como este es el valor máximo y no supera ninguno de los umbrales, ninguna observación lo hará.
+
+```{r}
+# Observaciones con al menos un DFBETAS grande
+idx_dfb <- which(apply(abs(dfb) > dfb_thr, 1, any))
+
+idx_dfb
+```
+Los DFBETAS evalúan qué observaciones afectan a qué coeficientes específicos. Nuestro modelo tiene 25 parámetros (p), y se busca si alguna observación cambia significativamente alguno de esos 25 coeficientes (DFBETAS altos).
+
+```{r}
+# Ver qué coeficientes son los más afectados
+if (length(idx_dfb) > 0) {
+  dfb_big <- as.data.frame(dfb[idx_dfb, , drop = FALSE])
+  dfb_big$obs <- idx_dfb
+  dfb_big %>%
+    relocate(obs) %>%
+    arrange(desc(rowSums(abs(across(where(is.numeric), ~ .x)))))
+} else {
+  cat("No se detectaron observaciones con DFBETAS por encima del umbral 2/sqrt(n).\n")
+}
+```
+Esta tabla representa cuánto cambia cada coeficiente al quitar una observación y, como se puede ver, ningún coeficiente muestra un cambio significativo. Por lo que, a pesar de que, como hemos visto, hay observaciones con DFBETAS altos, como hemos observado antes en la Distancia de Cook, ningún cambio es lo suficientemente fuerte como para cambiar significativamente nuestro modelo. Lo que reafirma nuestra decisión de no eliminar ninguna observación.
+
+#### Gráfico de influencia (leverage vs residuos estudentizados) con Cook
+
+```{r}
+# id = list(n = 5) etiqueta las 5 burbujas más grandes o alejadas (las observaciones más influyentes)
+car::influencePlot(modelo_final, id = list(n = 5), main = "Influence Plot", sub = "Tamaño ~ Cook's distance")
+```
+
+Esta tabla nos muestra las observaciones más influyentes de nuestro modelo. En el caso de la observación 147, presenta un Residuo Estudentizado muy negativo (-4.7226317), lo que significa que ha habido un error de predicción, probablemente el modelo predecía que el alumno iba a sacar buena nota y en realidad sacó un 0. Pero el valor de la Distancia de Cook más alto sigue siendo 0.173527440, por lo que sigue sin haber alguna observación que supere los umbrales de Cook.
+
+En el gráfico se representa el análisis visual de las observaciones influyentes. En la leyenda superior confirmamos que el valor máximo de la Distancia de Cook es 0.174, que como ya sabíamos no supera los umbrales de Cook. Las burbujas representan la influencia de cada observación. Que una burbuja sea grande significa que si eliminas esa observación del modelo, los coeficientes cambiarían significativamente, mientras que si es pequeña, al eliminarla apenas cambiaría. En el eje X se encuentra el Leverage, las burbujas que se encuentran a la izquierda (con menos Leverage) son las observaciones estándar, mientras que las que están a la derecha (Leverage alto) son las observaciones atípicas. Y el eje Y son los Residuos Estudentizados, es decir, el error de predicción, cuando una burbuja se encuentra cerca del 0 significa que el modelo ha acertado al predecir, mientras que cuanto más se aleje del 0, más ha fallado el modelo en su predicción.
+
+#### Tratamiento de puntos influyentes
+
+```{r}
+idx_remove <- which(cook > cook_thr)
+
+if (length(idx_remove) > 0) {
+  datos_sin <- train_limpio[-idx_remove, ]
+  modelo_sin <- update(modelo_final, data = datos_sin)
+
+  cat("Observaciones eliminadas (Cook alto):", idx_remove, "\n\n")
+  cat("Comparación de coeficientes (original vs sin influyentes):\n")
+  print(cbind(original = coef(modelo_final), sin_influyentes = coef(modelo_sin)))
+} else {
+  cat("No hay observaciones con Cook's distance por encima de 4/n.\n")
+}
+```
+
+En esta tabla podemos ver lo que ocurre al quitar los puntos más influyentes. Mientras que la variable predictora "G2" se mantiene estable, ya que pasa de 0.98561199 a 0.973085073, por lo que casi no hay diferencia, otras variables sufren cambios en su signo (por ejemplo "health.x4" pasa de -0.32818934 a 0.018757184) y de magnitud (como Fedu 2 que pasa de -1.09742599 a -0.286891719). Estos cambios seguramente se deban a los alumnos que se predecía que iban a sacar buenas notas y finalmente sacaron ceros. A pesar de esto, no se debería borrar ninguna de las observaciones debido a que son calificaciones reales que reflejan una realidad y no un error de medición.
